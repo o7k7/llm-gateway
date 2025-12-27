@@ -1,0 +1,12 @@
+[project]
+name = "llm-gateway"
+version = "0.1.0"
+description = "LLM Gateway"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.127.1",
+    "litellm>=1.80.11",
+    "presidio-analyzer[2-2-360]>=2.2.360",
+    "sentence-transformers>=5.2.0",
+]

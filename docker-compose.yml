@@ -1,0 +1,34 @@
+services:
+  redis-cache:
+    image: redis:8.4.0-alpine
+    container_name: redis-cache
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-cache-data:/data
+    networks:
+      - llm-gateway-network
+
+  redis-insight:
+    image: redis/redisinsight:2.70
+    container_name: redis_insight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    volumes:
+      - redis-insight-data:/data
+    networks:
+      - llm-gateway-network
+    depends_on:
+      - redis-cache
+
+volumes:
+  redis-cache-data:
+    driver: local
+  redis-insight-data:
+    driver: local
+
+networks:
+  llm-gateway-network:
+    driver: bridge
