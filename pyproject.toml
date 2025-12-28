@@ -7,6 +7,9 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.127.1",
     "litellm>=1.80.11",
+    "numpy>=2.4.0",
     "presidio-analyzer[2-2-360]>=2.2.360",
+    "pydantic-settings>=2.12.0",
+    "redis>=7.1.0",
     "sentence-transformers>=5.2.0",
 ]
