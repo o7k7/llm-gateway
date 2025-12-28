@@ -1,32 +1,35 @@
 services:
-  redis-cache:
-    image: redis:8.4.0-alpine
-    container_name: redis-cache
-    restart: unless-stopped
+  redis-stack:
+    image: redis/redis-stack:7.4.0-v8
+    container_name: redis-stack
+    networks:
+      - llm-gateway-network
     ports:
       - "6379:6379"
+      - "8081:8001"
+    environment:
+      - REDIS_ARGS=--requirepass ${REDIS_STACK_PASSWORD}
     volumes:
-      - redis-cache-data:/data
-    networks:
-      - llm-gateway-network
+      - redis-data:/data
 
-  redis-insight:
-    image: redis/redisinsight:2.70
-    container_name: redis_insight
-    restart: unless-stopped
-    ports:
-      - "5540:5540"
-    volumes:
-      - redis-insight-data:/data
+  api:
+    build: .
+    container_name: llm-gateway-api
     networks:
       - llm-gateway-network
+    ports:
+      - "8000:80"
+    environment:
+      - REDIS_HOST=redis-stack
+      - REDIS_PORT=6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_PASSWORD=${REDIS_STACK_PASSWORD}
+      - HF_HOME=/app/model_cache
     depends_on:
-      - redis-cache
+      - redis-stack
 
 volumes:
-  redis-cache-data:
-    driver: local
-  redis-insight-data:
+  redis-data:
     driver: local
 
 networks:
