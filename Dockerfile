@@ -12,6 +12,7 @@ RUN uv sync --frozen --no-install-project --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
 
+RUN uv pip install pip
 COPY scripts/download_models.py ./scripts/
 
 RUN python scripts/download_models.py

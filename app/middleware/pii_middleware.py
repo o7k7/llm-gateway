@@ -44,6 +44,7 @@ class PIIMiddleware(BaseHTTPMiddleware):
             results = analyzer.analyze(
                 text=body_json,
                 language="en",
+                entities=None # Looks for all entities
             )
             if any(r.score > 0.5 for r in results):
                 return True
