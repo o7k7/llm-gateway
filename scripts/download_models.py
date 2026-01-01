@@ -3,7 +3,7 @@ from spacy.cli import download
 
 print("Downloading Sentence Transformer...")
 
-SentenceTransformer('all-MiniLM-L6-v2')
+SentenceTransformer('all-MiniLM-L6-v2') # Tensor dimension 384
 
 print('Downloading SpaCy models...')
 
