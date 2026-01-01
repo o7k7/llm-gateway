@@ -1,4 +1,5 @@
 import logging
+import urllib.parse
 
 from redis.asyncio import Redis, from_url
 
@@ -10,7 +11,8 @@ redis_client: Redis | None = None
 
 
 def get_redis_url():
-    return f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/0"
+    encoded_pwd = urllib.parse.quote_plus(config.REDIS_PASSWORD)
+    return f"redis://:{encoded_pwd}@{config.REDIS_HOST}:{config.REDIS_PORT}/0"
 
 
 async def init_redis():
@@ -25,7 +27,7 @@ async def dispose_redis():
         await redis_client.close()
 
 
-async def get_redis():
+async def get_redis() -> Redis:
     if redis_client is None:
         await init_redis()
     return redis_client
