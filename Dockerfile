@@ -6,6 +6,8 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+RUN useradd -m -u 1000 appuser
+
 COPY uv.lock pyproject.toml ./
 
 RUN uv sync --frozen --no-install-project --no-dev
@@ -14,6 +16,8 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 RUN uv pip install pip
 COPY scripts/download_models.py ./scripts/
+
+RUN mkdir -p /app/model_cache && chown -R appuser:appuser /app/model_cache
 
 RUN python scripts/download_models.py
 
