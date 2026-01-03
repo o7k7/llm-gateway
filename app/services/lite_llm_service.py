@@ -1,21 +1,27 @@
 import logging
+import os
 
 import litellm
 from fastapi import HTTPException
-from litellm import completion
+from litellm import acompletion
 
 from app.config import config
+from app.core.configure_llm_environment import configure_llm_environment
 from app.models.llm_response import LLMResponse
 from app.services.lite_llm_service_interface import ILiteLLMService
 
+litellm.callbacks = ["langfuse_otel"]
 
 class LiteLLMService(ILiteLLMService):
     logger = logging.getLogger(__name__)
 
+    def __init__(self):
+        self.provider, self.model_name = configure_llm_environment()
+
     async def process_query(self, user_query: str) -> LLMResponse:
         try:
-            response = completion(
-                model=config.LLM_MODEL,
+            response = await acompletion(
+                model=f"{self.provider}/{self.model_name}",
                 messages=[
                     {"content": user_query, "role": "user"}
                 ],
