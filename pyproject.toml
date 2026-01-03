@@ -7,8 +7,12 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi-limiter>=0.1.6",
     "fastapi[standard]>=0.128.0",
+    "langfuse>=3.11.2",
     "litellm>=1.80.11",
     "numpy>=2.4.0",
+    "opentelemetry-api>=1.39.1",
+    "opentelemetry-exporter-otlp>=1.39.1",
+    "opentelemetry-sdk>=1.39.1",
     "presidio-analyzer[2-2-360]>=2.2.360",
     "pydantic-settings>=2.12.0",
     "pytest>=9.0.2",

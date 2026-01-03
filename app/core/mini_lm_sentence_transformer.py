@@ -12,7 +12,7 @@ def get_model_instance_tensor_dim():
     global model_instance_tensor_dim
     return model_instance_tensor_dim
 
-def get_model_instance():
+def get_model_instance() -> SentenceTransformer:
     global model_instance
     if model_instance is None:
         init_model_instance()
