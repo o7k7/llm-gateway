@@ -7,6 +7,7 @@ from app.core.mini_lm_sentence_transformer import get_model_instance
 from app.middleware.pii_middleware import PIIMiddleware
 from app.redis.redis_client import init_redis, dispose_redis, get_redis
 from app.routers import chat
+from app.security.semantic_security_middleware import SemanticSecurityMiddleware
 from app.services.semantic_cache import SemanticCache
 
 
@@ -24,6 +25,7 @@ async def lifespan(_: FastAPI):
     await dispose_redis()
 
 app = FastAPI(title="LLM Gateway", lifespan=lifespan)
+app.add_middleware(SemanticSecurityMiddleware)
 app.add_middleware(PIIMiddleware)
 
 app.include_router(chat.chat_router, prefix="/v1")

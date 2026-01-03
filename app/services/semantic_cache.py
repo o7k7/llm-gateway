@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+from typing import Any
 
 import numpy as np
 from redis.asyncio import Redis
@@ -57,8 +58,10 @@ class SemanticCache(ISemanticCache):
             lambda: self.sentence_transformer.encode(text).tolist()
         )
 
-    async def process_query(self, query: str) -> SemanticCacheResponse:
-        query_vector = await self._get_embedding(query)
+    async def process_query(self, query: str, query_vector: list[Any] | None) -> SemanticCacheResponse:
+        if query_vector is None:
+            query_vector = await self._get_embedding(query)
+
         query_bytes = np.array(query_vector, dtype=np.float32).tobytes()
         # https://redis.io/kb/doc/153ae27nuz/how-to-perform-vector-search-and-find-the-semantic-similarity-of-documents-in-python
         q = (
@@ -83,9 +86,10 @@ class SemanticCache(ISemanticCache):
         self.logger.info("Cache MISS")
         return SemanticCacheResponse(source="cache", response=None)
 
-    async def create_cache_for_query(self, query: str, llm_response: str):
+    async def create_cache_for_query(self, query: str, llm_response: str, query_vector: list[Any] | None):
         try:
-            query_vector = await self._get_embedding(query)
+            if query_vector is None:
+                query_vector = await self._get_embedding(query)
             query_bytes = np.array(query_vector, dtype=np.float32).tobytes()
 
             key = f"cache:{uuid.uuid4()}"
