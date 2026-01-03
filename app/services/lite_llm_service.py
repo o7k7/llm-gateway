@@ -1,5 +1,5 @@
 import logging
-import os
+from typing import AsyncGenerator
 
 import litellm
 from fastapi import HTTPException
@@ -25,7 +25,6 @@ class LiteLLMService(ILiteLLMService):
                 messages=[
                     {"content": user_query, "role": "user"}
                 ],
-                # TODO Current caching implementation doesnt support stream
                 stream=False
             )
 
@@ -37,6 +36,27 @@ class LiteLLMService(ILiteLLMService):
                 usage=usage,
                 model=response.model
             )
+        except litellm.AuthenticationError as e:
+            self.logger.error(f"Authentication error: {e}")
+            raise HTTPException(status_code=500, detail="LLM Provider Auth Failed")
+        except litellm.RateLimitError as e:
+            self.logger.error(f"Rate limit error: {e}")
+            raise HTTPException(status_code=429, detail="LLM Rate Limit Exceeded")
+        except Exception as e:
+            self.logger.error(f"Unknown error: {e}")
+            raise HTTPException(status_code=500, detail="Internal LLM Error")
+
+    async def process_query_stream(self, user_query: str) -> AsyncGenerator[str, None]:
+        try:
+            response = await litellm.acompletion(
+                model=f"{self.provider}/{self.model_name}",
+                messages=[{"content": user_query, "role": "user"}],
+                stream=True
+            )
+            async for chunk in response:
+                content = chunk.choices[0].delta.content or ""
+                if content:
+                    yield content
         except litellm.AuthenticationError as e:
             self.logger.error(f"Authentication error: {e}")
             raise HTTPException(status_code=500, detail="LLM Provider Auth Failed")
