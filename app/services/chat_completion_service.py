@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from app.services.chat_completion_service_interface import IChatCompletionService
 from app.services.lite_llm_service_interface import ILiteLLMService
@@ -22,3 +22,18 @@ class ChatCompletionService(IChatCompletionService):
             await self.sematic_cache.create_cache_for_query(query, llm_response, query_vector)
 
             return llm_response
+
+    async def process_query_stream(self, query: str, query_vector: list[Any] | None) -> AsyncGenerator[str, None]:
+        cache_response = await self.sematic_cache.process_query(query, query_vector)
+        if cache_response.response is not None:
+            yield cache_response.response
+            return
+
+        full_response_buffer = []
+
+        async for chunk in self.llm_service.process_query_stream(query):
+            full_response_buffer.append(chunk)
+            yield chunk
+
+        text = "".join(full_response_buffer)
+        await self.sematic_cache.create_cache_for_query(query, text, query_vector)

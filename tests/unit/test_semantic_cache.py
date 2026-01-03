@@ -22,7 +22,7 @@ async def test_cache_hit():
     mock_transformer = MagicMock()
     service = SemanticCache(mock_redis, mock_transformer)
 
-    result = await service.process_query("test query")
+    result = await service.process_query("test query", query_vector=None)
 
     assert result.source == "cache"
     assert result.response == cached_answer
