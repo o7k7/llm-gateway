@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 
 class IChatCompletionService(ABC):
@@ -8,5 +9,7 @@ class IChatCompletionService(ABC):
         pass
 
     @abstractmethod
-    async def process_query_stream(self, query: str, query_vector: list[Any] | None) -> AsyncGenerator[str, None]:
+    async def process_query_stream(
+        self, query: str, query_vector: list[Any] | None
+    ) -> AsyncGenerator[str, None]:
         pass

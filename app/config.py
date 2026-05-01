@@ -9,11 +9,7 @@ class Config(BaseSettings):
     LLM_MODEL: str
     LLM_API_KEY: str
 
-    model_config = SettingsConfigDict(
-        env_file='.env',
-        env_file_encoding = "utf-8",
-        extra = "ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
 config = Config()

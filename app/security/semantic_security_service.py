@@ -1,10 +1,10 @@
 import asyncio
 import logging
 
-from starlette.requests import Request
-from fastapi import HTTPException
 from app.core.mini_lm_sentence_transformer import get_model_instance
 from app.models.chat_request import ChatRequest
+from fastapi import HTTPException
+from starlette.requests import Request
 
 
 class SemanticSecurityService:
@@ -16,10 +16,9 @@ class SemanticSecurityService:
             "act as a developer",
             "system override",
             "you are a linux terminal",
-            "ignore all previous instructions"
+            "ignore all previous instructions",
         ]
         self.blacklisted_embeddings = None
-
 
     async def check_jailbreak(self, chat_request: ChatRequest, request: Request):
         model = get_model_instance()
@@ -33,12 +32,13 @@ class SemanticSecurityService:
 
         if user_query:
             loop = asyncio.get_running_loop()
-            is_unsafe = await loop.run_in_executor(None, lambda: self._calculate_similarity(model, user_query, request=request))
+            is_unsafe = await loop.run_in_executor(
+                None, lambda: self._calculate_similarity(model, user_query, request=request)
+            )
             if is_unsafe:
                 self.logger.warning(f"Jailbreak attempt blocked: {user_query[:50]}...")
                 raise HTTPException(
-                    status_code=403,
-                    detail="Security Violation: Unsafe prompt detected."
+                    status_code=403, detail="Security Violation: Unsafe prompt detected."
                 )
 
         return True
@@ -50,5 +50,6 @@ class SemanticSecurityService:
         request.state.query_vector = query_vec.tolist()
 
         return similarities.max().item() > 0.75
+
 
 semantic_security_service_singleton = SemanticSecurityService()

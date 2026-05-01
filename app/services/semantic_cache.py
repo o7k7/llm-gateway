@@ -4,15 +4,14 @@ import uuid
 from typing import Any
 
 import numpy as np
+from app.core.mini_lm_sentence_transformer import get_model_instance_tensor_dim
+from app.models.semantic_cache_response import SemanticCacheResponse
+from app.services.semantic_cache_interface import ISemanticCache
 from redis.asyncio import Redis
 from redis.commands.search.field import TextField, VectorField
 from redis.commands.search.index_definition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
 from sentence_transformers import SentenceTransformer
-
-from app.core.mini_lm_sentence_transformer import get_model_instance_tensor_dim
-from app.models.semantic_cache_response import SemanticCacheResponse
-from app.services.semantic_cache_interface import ISemanticCache
 
 
 class SemanticCache(ISemanticCache):
@@ -42,8 +41,8 @@ class SemanticCache(ISemanticCache):
                         "TYPE": "FLOAT32",
                         "DIM": self.vector_dim,
                         "DISTANCE_METRIC": "COSINE",
-                    }
-                )
+                    },
+                ),
             ]
 
             definition = IndexDefinition(prefix=["cache:"], index_type=IndexType.HASH)
@@ -54,18 +53,19 @@ class SemanticCache(ISemanticCache):
     async def _get_embedding(self, text: str):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None,
-            lambda: self.sentence_transformer.encode(text).tolist()
+            None, lambda: self.sentence_transformer.encode(text).tolist()
         )
 
-    async def process_query(self, query: str, query_vector: list[Any] | None) -> SemanticCacheResponse:
+    async def process_query(
+        self, query: str, query_vector: list[Any] | None
+    ) -> SemanticCacheResponse:
         if query_vector is None:
             query_vector = await self._get_embedding(query)
 
         query_bytes = np.array(query_vector, dtype=np.float32).tobytes()
         # https://redis.io/kb/doc/153ae27nuz/how-to-perform-vector-search-and-find-the-semantic-similarity-of-documents-in-python
         q = (
-            Query(f"*=>[KNN 1 @embedding $vec AS score]")
+            Query("*=>[KNN 1 @embedding $vec AS score]")
             .sort_by("score")
             .return_fields("response", "score")
             .dialect(2)
@@ -86,7 +86,9 @@ class SemanticCache(ISemanticCache):
         self.logger.info("Cache MISS")
         return SemanticCacheResponse(source="cache", response=None)
 
-    async def create_cache_for_query(self, query: str, llm_response: str, query_vector: list[Any] | None):
+    async def create_cache_for_query(
+        self, query: str, llm_response: str, query_vector: list[Any] | None
+    ):
         try:
             if query_vector is None:
                 query_vector = await self._get_embedding(query)

@@ -4,14 +4,14 @@ from fastapi import FastAPI
 from fastapi_limiter import FastAPILimiter
 
 from app.core.mini_lm_sentence_transformer import get_model_instance
-from app.redis.redis_client import init_redis, dispose_redis, get_redis
+from app.redis.redis_client import dispose_redis, get_redis
 from app.routers import chat
 from app.services.semantic_cache import SemanticCache
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await init_redis()
+    await get_redis()
 
     await FastAPILimiter.init(await get_redis())
 
@@ -22,9 +22,11 @@ async def lifespan(_: FastAPI):
     yield
     await dispose_redis()
 
+
 app = FastAPI(title="LLM Gateway", lifespan=lifespan)
 
 app.include_router(chat.chat_router, prefix="/v1")
+
 
 @app.get("/health")
 async def health():

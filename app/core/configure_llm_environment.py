@@ -5,6 +5,7 @@ from app.config import config
 
 logger = logging.getLogger("LLMEnvironment")
 
+
 def configure_llm_environment():
     """
     Sets the correct API Key env var.
@@ -12,8 +13,8 @@ def configure_llm_environment():
     try:
         provider = config.LLM_PROVIDER.lower()
         model_name = config.LLM_MODEL.lower()
-    except ValueError:
-        raise Exception("Provide a valid LLM model name")
+    except ValueError as err:
+        raise Exception("Provide a valid LLM model name") from err
     env_var_mapping = {
         "groq": "GROQ_API_KEY",
         "openai": "OPENAI_API_KEY",

@@ -1,26 +1,16 @@
 import logging
+from functools import lru_cache
 
 from sentence_transformers import SentenceTransformer
 
-logger = logging.Logger("MiniLMSentenceTransformer")
+logger = logging.getLogger("MiniLMSentenceTransformer")
 
-model_instance: SentenceTransformer | None = None
+MODEL_TENSOR_DIM = 384
 
-model_instance_tensor_dim = 384
-
-def get_model_instance_tensor_dim():
-    global model_instance_tensor_dim
-    return model_instance_tensor_dim
-
+@lru_cache(maxsize=1)
 def get_model_instance() -> SentenceTransformer:
-    global model_instance
-    if model_instance is None:
-        init_model_instance()
+    logger.info("Initializing Sentence Transformer model...")
+    return SentenceTransformer("all-MiniLM-L6-v2")
 
-    return model_instance
-
-def init_model_instance():
-    global model_instance
-
-    model_instance = SentenceTransformer('all-MiniLM-L6-v2')
-    logger.info('Initializing Sentence Transformer model...')
+def get_model_instance_tensor_dim() -> int:
+    return MODEL_TENSOR_DIM
