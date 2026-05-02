@@ -17,9 +17,7 @@ class Config(BaseSettings):
     vllm_small_url: HttpUrl = Field(
         default=HttpUrl("http://localhost:8001"), alias="VLLM_SMALL_URL"
     )
-    vllm_small_model: str = Field(
-        default="Qwen/Qwen2.5-7B-Instruct-AWQ", alias="VLLM_SMALL_MODEL"
-    )
+    vllm_small_model: str = Field(default="Qwen/Qwen2.5-7B-Instruct-AWQ", alias="VLLM_SMALL_MODEL")
     vllm_large_url: HttpUrl = Field(
         default=HttpUrl("http://localhost:8002"), alias="VLLM_LARGE_URL"
     )
