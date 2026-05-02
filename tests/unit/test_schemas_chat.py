@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
-
 from app.schemas.chat import (
     ChatRequest,
     ContentPart,
     ImagePart,
     TextPart,
 )
+from pydantic import TypeAdapter, ValidationError
 
 
 class TestContentPartDiscriminator:
