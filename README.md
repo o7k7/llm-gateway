@@ -1,3 +1,6 @@
+> ⚠️ **v0.2.0 rewrite in progress** on the `feat/v2-rewrite` branch.
+> This `main` branch still reflects v0.1.0 (LiteLLM-backed).
+
 # Local Development Prerequisites
 
 - Use makefile to run redis-stack with `make up-redis-stack`
