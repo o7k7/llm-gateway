@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from app.backends.base import Backend
+
+logger = logging.getLogger(__name__)
 
 
 class BackendRegistry:
@@ -33,5 +37,8 @@ class BackendRegistry:
 
     async def aclose(self) -> None:
         for b in self._backends.values():
-            await b.aclose()
+            try:
+                await b.aclose()
+            except Exception:
+                logger.exception("Error closing backend %s", b.name)
         self._backends.clear()
