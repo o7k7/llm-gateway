@@ -25,6 +25,7 @@ dependencies = [
     "pyjwt[crypto]>=2.9",
     "async-lru>=2.3.0",
     "pytest-env>=1.6.0",
+    "magika>=1.0.3",
 ]
 
 [dependency-groups]
