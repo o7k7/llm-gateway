@@ -51,6 +51,10 @@ class Config(BaseSettings):
         default=10.0, alias="DEFAULT_TENANT_DAILY_BUDGET_USD"
     )
 
+    tokenizer_encoding_name: str = Field(
+        default="cl100k_base", alias="TOKENIZER_ENCODING_NAME"
+    )
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
