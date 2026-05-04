@@ -10,11 +10,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import pytest
-
 from app.backends import BackendRegistry
 from app.routing.routing import resolve_backend
 from app.schemas.chat import ChatChunk, ChatRequest
-
 
 # --------------------------------------------------------------------------
 # Test fixtures
@@ -172,7 +170,8 @@ class TestAutoCode:
     def test_markdown_code_fence_routes_to_large(self) -> None:
         reg = _registry("small", "large")
         prompt = (
-            "Explain this:\npython\nprint('hi')\n words = text.split() symbol_count = sum(1 for char in text if char in "
+            "Explain this:\npython\nprint('hi')\n words = "
+            "text.split() symbol_count = sum(1 for char in text if char in "
             ") if len(words) > 0 and (symbol_count / len(words)) > 0.5:return True"
         )
         name, reason = resolve_backend(_req("auto", prompt), reg)
