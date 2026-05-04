@@ -3,7 +3,7 @@
 Used by:
 - JWT middleware to populate `CurrentTenant` in request scope
 - Token bucket for per-tenant rate limits
-- Ledger/pricingfor cost accounting
+- Ledger/pricing for cost accounting
 """
 
 from __future__ import annotations
@@ -45,3 +45,28 @@ class Tenant(BaseModel):
     id: str = Field(min_length=1)
     name: str | None = None
     limits: TenantLimits = Field(default_factory=TenantLimits)
+
+    @classmethod
+    def from_jwt_claims(
+        cls,
+        claims: dict[str, object],
+        *,
+        default_limits: TenantLimits | None = None,
+    ) -> Tenant:
+        """Construct a Tenant from decoded JWT claims."""
+        tenant_id = claims.get("sub")
+        if not isinstance(tenant_id, str) or not tenant_id:
+            raise ValueError("JWT missing or invalid 'sub' claim")
+
+        name_raw = claims.get("name")
+        name = name_raw if isinstance(name_raw, str) else None
+
+        limits_claim = claims.get("limits")
+        if isinstance(limits_claim, dict):
+            limits = TenantLimits.model_validate(limits_claim)
+        elif default_limits is not None:
+            limits = default_limits
+        else:
+            limits = TenantLimits()
+
+        return cls(id=tenant_id, name=name, limits=limits)
