@@ -14,6 +14,7 @@ from app.backends import (
     BackendUnavailableError,
 )
 from app.dependencies import CurrentBackends
+from app.routing.routing import resolve_backend as _routing_resolve
 from app.schemas import ChatChunk, ChatRequest, Usage
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -30,12 +31,27 @@ chat_route_v2 = APIRouter(
 async def chat_completions(
     req: ChatRequest, backends: CurrentBackends
 ) -> StreamingResponse | JSONResponse:
-    backend = _resolve_backend(backends, req.model)
+    backend, route_reason = _resolve_backend(backends, req)
+
+    logger.info(
+        "route: model=%s → backend=%s (reason=%s)",
+        req.model,
+        backend.name,
+        route_reason,
+    )
+
+    headers = {
+        "X-Gateway-Backend": backend.name,
+        "X-Gateway-Model": backend.model,
+        "X-Gateway-Route-Reason": route_reason,
+    }
+
     if req.stream:
         return StreamingResponse(
             _sse_stream(backend.stream(req), backend_name=backend.name),
             media_type="text/event-stream",
             headers={
+                **headers,
                 "Cache-Control": "no-cache",
                 # https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering
                 "X-Accel-Buffering": "no",  # disable nginx buffering
@@ -47,11 +63,26 @@ async def chat_completions(
     )
 
 
-def _resolve_backend(backends: BackendRegistry, name: str) -> Backend:
+def _resolve_backend(backends: BackendRegistry, req: ChatRequest) -> tuple[Backend, str]:
     try:
-        return backends.get(name)
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail={"error": {"message": str(e)}}) from e
+        name, reason = _routing_resolve(req, backends)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "message": f"Unknown model: {req.model!r}",
+                    "type": "unknown_backend",
+                }
+            },
+        ) from None
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"message": str(e), "type": "no_backends"}},
+        ) from e
+
+    return backends.get(name), reason
 
 
 async def _sse_stream(chunks: AsyncIterator[ChatChunk], *, backend_name: str) -> AsyncIterator[str]:
