@@ -1,4 +1,5 @@
 """Cost accounting — pricing, token bucket, estimator."""
+
 from __future__ import annotations
 
 from app.accounting.estimator import TokenEstimator

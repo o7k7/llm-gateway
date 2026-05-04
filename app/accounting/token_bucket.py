@@ -26,6 +26,7 @@ Usage
         amount=over_estimate,
     )
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -139,9 +140,7 @@ class TokenBucket:
     def _key(self, tenant_id: str, suffix: str) -> str:
         return f"{self._prefix}:{tenant_id}:{suffix}"
 
-    async def _peek_or_capacity(
-        self, tenant_id: str, suffix: str, capacity: int
-    ) -> int:
+    async def _peek_or_capacity(self, tenant_id: str, suffix: str, capacity: int) -> int:
         """Cheap best-effort read used by no-op refunds."""
         try:
             raw = await self._client.hget(self._key(tenant_id, suffix), "tokens")
@@ -154,9 +153,7 @@ class TokenBucket:
         except (TypeError, ValueError):
             return capacity
 
-    async def _run(
-        self, script: str, sha: str, key: str, args: list[object]
-    ) -> list[object]:
+    async def _run(self, script: str, sha: str, key: str, args: list[object]) -> list[object]:
         """EVALSHA with automatic EVAL fallback on NoScriptError."""
         try:
             return await self._client.evalsha(sha, 1, key, *args)

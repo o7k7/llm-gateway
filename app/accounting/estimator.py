@@ -5,6 +5,7 @@ Why pre-flight estimation
 The rate limiter needs a token budget guess BEFORE calling the backend,
 otherwise we'd pay for the GPU inference of rejected-after-the-fact requests.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -18,7 +19,6 @@ from app.schemas.chat import (
     TextPart,
     UserMessage,
 )
-
 
 # Per-message overhead for role/name tokens. OpenAI's formula for
 # cl100k_base-era models is well-documented at ~4 tokens per message.
@@ -41,7 +41,7 @@ class TokenEstimator:
 
     def __init__(self, encoding_name: str = "cl100k_base") -> None:
         self._encoding_name = encoding_name
-        _encoding(encoding_name) # to warmup the cache
+        _encoding(encoding_name)  # to warmup the cache
 
     def count(self, req: ChatRequest) -> int:
         """Total estimated input tokens (not counting the model's response)."""
@@ -65,9 +65,7 @@ class TokenEstimator:
         """
         return self.count(req) + (req.max_tokens or default_max_tokens)
 
-    def _count_parts(
-        self, parts: list[ContentPart], enc: tiktoken.Encoding
-    ) -> int:
+    def _count_parts(self, parts: list[ContentPart], enc: tiktoken.Encoding) -> int:
         total = 0
         for p in parts:
             if isinstance(p, TextPart):
