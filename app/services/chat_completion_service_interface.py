@@ -1,14 +1,12 @@
-from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 
-class IChatCompletionService(ABC):
-    @abstractmethod
+@runtime_checkable
+class IChatCompletionService(Protocol):
     async def process_query(self, query: str, query_vector: list[Any] | None) -> str:
         pass
 
-    @abstractmethod
     async def process_query_stream(
         self, query: str, query_vector: list[Any] | None
     ) -> AsyncGenerator[str, None]:

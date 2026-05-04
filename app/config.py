@@ -1,6 +1,7 @@
+from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, HttpUrl
+from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,9 +32,18 @@ class Config(BaseSettings):
         default="INFO", alias="LOG_LEVEL"
     )
 
+    langfuse_pub_key: SecretStr | None = Field(default=None, alias="LANGFUSE_PUB_KEY")
+    langfuse_secret_key: SecretStr | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")
+
     small_model_token_threshold: int = 1000
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
-config = Config()
+@lru_cache
+def get_config() -> Config:
+    return Config()
+
+
+# Backward-Compat
+config = get_config()

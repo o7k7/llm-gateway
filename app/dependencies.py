@@ -1,9 +1,13 @@
 from typing import Annotated
 
+from fastapi import Request
 from fastapi.params import Depends
 from redis.asyncio import Redis
 from sentence_transformers import SentenceTransformer
 
+from app.app_state import AppState
+from app.backends import BackendRegistry
+from app.config import Config
 from app.core.mini_lm_sentence_transformer import get_model_instance
 from app.redis.redis_client import get_redis
 from app.services.chat_completion_service import ChatCompletionService
@@ -30,3 +34,20 @@ def get_chat_completion_service(
     lite_llm: Annotated[ILiteLLMService, Depends(get_lite_llm)],
 ) -> IChatCompletionService:
     return ChatCompletionService(semantic_cache=sematic_cache, llm_service=lite_llm)
+
+
+def get_app_state(request: Request) -> AppState:
+    state = request.app.state.app_state
+    assert isinstance(state, AppState)
+    return state
+
+
+def get_config_dep(state: Annotated[AppState, Depends(get_app_state)]) -> Config:
+    return state.config
+
+
+def get_backends(state: Annotated[AppState, Depends(get_app_state)]) -> BackendRegistry:
+    return state.backends
+
+
+CurrentBackends = Annotated[BackendRegistry, Depends(get_backends)]

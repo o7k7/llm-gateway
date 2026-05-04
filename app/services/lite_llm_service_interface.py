@@ -1,14 +1,13 @@
-from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
+from typing import Protocol, runtime_checkable
 
 from app.models.llm_response import LLMResponse
 
 
-class ILiteLLMService(ABC):
-    @abstractmethod
+@runtime_checkable
+class ILiteLLMService(Protocol):
     async def process_query(self, user_query: str) -> LLMResponse:
         pass
 
-    @abstractmethod
     async def process_query_stream(self, user_query: str) -> AsyncGenerator[str, None]:
         pass

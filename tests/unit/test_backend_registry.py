@@ -78,8 +78,9 @@ class TestLifecycle:
         assert b.closed is True
         assert reg.names() == []
 
-    async def test_aclose_continues_on_individual_failure(self) -> None:
-        """One backend failing to close must not prevent others from closing."""
+    async def test_aclose_swallows_individual_failures(self) -> None:
+        """A flaky backend must not prevent other backends from closing or
+        block the shutdown path."""
         reg = BackendRegistry()
 
         flaky = _FakeBackend("flaky")
@@ -89,5 +90,8 @@ class TestLifecycle:
         reg.register(flaky)
         reg.register(good)
 
-        with pytest.raises(RuntimeError):
-            await reg.aclose()
+        # Must NOT raise — errors logged, shutdown continues
+        await reg.aclose()
+
+        assert good.closed is True
+        assert reg.names() == []
