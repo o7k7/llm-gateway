@@ -1,4 +1,5 @@
 """Tests for app.accounting.estimator — token counting logic."""
+
 from __future__ import annotations
 
 import pytest
@@ -21,9 +22,7 @@ def _req(**extra: object) -> ChatRequest:
 
 
 class TestBasicCounting:
-    def test_trivial_prompt_positive_and_small(
-        self, estimator: TokenEstimator
-    ) -> None:
+    def test_trivial_prompt_positive_and_small(self, estimator: TokenEstimator) -> None:
         n = estimator.count(_req())
         # Message overhead + priming + 1 token for "hello" = 4 + 3 + 1 = 8ish
         assert 5 <= n <= 15
@@ -31,18 +30,12 @@ class TestBasicCounting:
     def test_longer_prompt_counts_more(self, estimator: TokenEstimator) -> None:
         short = estimator.count(_req(messages=[{"role": "user", "content": "hi"}]))
         long = estimator.count(
-            _req(
-                messages=[
-                    {"role": "user", "content": "The quick brown fox " * 50}
-                ]
-            )
+            _req(messages=[{"role": "user", "content": "The quick brown fox " * 50}])
         )
         assert long > short * 10
 
     def test_multi_message_accumulates(self, estimator: TokenEstimator) -> None:
-        one_msg = estimator.count(
-            _req(messages=[{"role": "user", "content": "test " * 20}])
-        )
+        one_msg = estimator.count(_req(messages=[{"role": "user", "content": "test " * 20}]))
         three_msgs = estimator.count(
             _req(
                 messages=[
@@ -71,9 +64,7 @@ class TestMultimodal:
         n = estimator.count(req)
         assert n >= 5
 
-    def test_image_parts_add_fixed_estimate(
-        self, estimator: TokenEstimator
-    ) -> None:
+    def test_image_parts_add_fixed_estimate(self, estimator: TokenEstimator) -> None:
         """An image part should add ~85 tokens on top of text."""
         text_only = estimator.count(
             _req(
@@ -106,16 +97,12 @@ class TestMultimodal:
 
 
 class TestBudgetEstimate:
-    def test_budget_equals_input_plus_max_tokens(
-        self, estimator: TokenEstimator
-    ) -> None:
+    def test_budget_equals_input_plus_max_tokens(self, estimator: TokenEstimator) -> None:
         req = _req(max_tokens=256)
         budget = estimator.estimate_budget(req, default_max_tokens=512)
         assert budget == estimator.count(req) + 256
 
-    def test_budget_uses_default_when_max_tokens_absent(
-        self, estimator: TokenEstimator
-    ) -> None:
+    def test_budget_uses_default_when_max_tokens_absent(self, estimator: TokenEstimator) -> None:
         req = _req()  # no max_tokens
         budget = estimator.estimate_budget(req, default_max_tokens=512)
         assert budget == estimator.count(req) + 512
