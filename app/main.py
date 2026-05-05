@@ -5,6 +5,7 @@ import litellm
 from fastapi import FastAPI, Request
 from fastapi_limiter import FastAPILimiter
 
+from app.accounting import TokenBucket, Ledger, TokenEstimator, get_pricing_table
 from app.app_state import AppState
 from app.backends import BackendRegistry, LiteLLMBackend, VLLMBackend
 from app.config import Config, get_config
@@ -24,14 +25,27 @@ async def lifespan(_: FastAPI):
     _configure_litellm_globals(config)
     backends = _build_backends(config)
     await _probe_backends(backends)
-    app.state.app_state = AppState(config=config, backends=backends)
 
+    redis_client = await get_redis()
+
+    bucket = TokenBucket(client=redis_client)
+    ledger = Ledger(client=redis_client)
+    estimator = TokenEstimator(encoding_name=config.tokenizer_encoding_name)
+    pricing = get_pricing_table()
+    app.state.app_state = AppState(
+        config=config,
+        backends=backends,
+        ledger=ledger,
+        estimator=estimator,
+        pricing=pricing,
+        redis=redis_client,
+        bucket=bucket,
+    )
     logger.info("Gateway ready: env=%s backends=%s", config.env, backends.names())
 
-    await get_redis()
-    await FastAPILimiter.init(await get_redis())
+    await FastAPILimiter.init(redis_client)
     model = get_model_instance()
-    cache_service = SemanticCache(redis_client=await get_redis(), sentence_transformer=model)
+    cache_service = SemanticCache(redis_client=redis_client, sentence_transformer=model)
 
     await cache_service.initialize_cache_index()
     try:

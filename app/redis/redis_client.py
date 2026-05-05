@@ -20,7 +20,7 @@ async def get_redis() -> Redis:
     The @alru_cache ensures the connection pool is only created once.
     """
     logger.info("Initializing Redis client...")
-    client = from_url(get_redis_url(), encoding="utf-8", decode_responses=True)
+    client = from_url(get_redis_url(), encoding="utf-8", decode_responses=True, max_connections=100)
     return client
 
 
