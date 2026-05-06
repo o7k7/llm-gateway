@@ -8,11 +8,17 @@ from typing import Any
 
 import httpx
 import pytest
+
+from app.accounting import TokenBucket, Ledger, TokenEstimator, PricingTable
 from app.app_state import AppState
+import fakeredis.aioredis
+
+from app.auth import get_current_tenant
 from app.backends import BackendRegistry
 from app.backends.errors import BackendRateLimitError, BackendUnavailableError
 from app.config import get_config
 from app.routers.chat_v2 import chat_route_v2
+from app.schemas import Pricing, Tenant, TenantLimits
 from app.schemas.chat import ChatChunk, ChatRequest, ChoiceChunk, Delta, Usage
 from fastapi import FastAPI
 from httpx import ASGITransport
@@ -63,21 +69,43 @@ def _final_chunk(*, model: str = "fake-model") -> ChatChunk:
     )
 
 
-def _app_with_backend(backend: Any) -> FastAPI:
+async def _app_with_backend(backend: Any, tenant_limits: TenantLimits) -> tuple[FastAPI, fakeredis.aioredis.FakeRedis]:
+    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=False)
+    await redis_client.flushall()
+
     registry = BackendRegistry()
     registry.register(backend)
-    state = AppState(config=get_config(), backends=registry)
+    state = AppState(
+        config=get_config(),
+        backends=registry,
+        redis=redis_client,
+        bucket=TokenBucket(redis_client),
+        ledger=Ledger(redis_client),
+        estimator=TokenEstimator(),
+        pricing=PricingTable(
+            entries=(Pricing(model="fake-model", input_per_1m=1.0, output_per_1m=3.0),)
+        ),
+    )
 
     app = FastAPI()
     app.state.app_state = state
-    app.include_router(chat_route_v2, prefix="/v2")
-    return app
+    app.include_router(chat_route_v2)
+
+    async def _fixed_tenant() -> Tenant:
+        return Tenant(id="test-tenant", limits=tenant_limits)
+
+    app.dependency_overrides[get_current_tenant] = _fixed_tenant
+    return app, redis_client
 
 
 @pytest.fixture
 def client_factory():
-    def _make(backend: Any) -> httpx.AsyncClient:
-        app = _app_with_backend(backend)
+    async def _make(backend: Any) -> httpx.AsyncClient:
+        app, redis_client = await _app_with_backend(backend, TenantLimits(
+            requests_per_min=2,  # only 2 allowed per minute
+            tokens_per_min=100_000,
+            daily_budget_usd=10.0,
+        ))
         return httpx.AsyncClient(
             transport=ASGITransport(app=app),
             base_url="http://test",
@@ -100,10 +128,10 @@ class TestStreaming:
         backend = _FakeBackend(chunks=[_content_chunk("Hel"), _content_chunk("lo"), _final_chunk()])
 
         async with (
-            client_factory(backend) as client,
+            await client_factory(backend) as client,
             client.stream(
                 "POST",
-                "/v2/chat/completions",
+                "/chat/completions",
                 json=_payload(stream=True),
             ) as response,
         ):
@@ -133,10 +161,10 @@ class TestStreaming:
         backend = _FakeBackend(error=BackendUnavailableError("down", backend="small"))
 
         async with (
-            client_factory(backend) as client,
+            await client_factory(backend) as client,
             client.stream(
                 "POST",
-                "/v2/chat/completions",
+                "/chat/completions",
                 json=_payload(stream=True),
             ) as response,
         ):
@@ -156,8 +184,8 @@ class TestNonStreaming:
     async def test_returns_collected_json(self, client_factory: Any) -> None:
         backend = _FakeBackend(chunks=[_content_chunk("Hel"), _content_chunk("lo"), _final_chunk()])
 
-        async with client_factory(backend) as client:
-            response = await client.post("/v2/chat/completions", json=_payload(stream=False))
+        async with (await client_factory(backend)) as client:
+            response = await client.post("/chat/completions", json=_payload(stream=False))
 
         assert response.status_code == 200
         body = response.json()
@@ -172,8 +200,8 @@ class TestNonStreaming:
     async def test_backend_rate_limit_maps_to_429(self, client_factory: Any) -> None:
         backend = _FakeBackend(error=BackendRateLimitError("slow down", backend="small"))
 
-        async with client_factory(backend) as client:
-            response = await client.post("/v2/chat/completions", json=_payload(stream=False))
+        async with (await client_factory(backend)) as client:
+            response = await client.post("/chat/completions", json=_payload(stream=False))
 
         assert response.status_code == 429
         assert response.json()["detail"]["error"]["message"]
@@ -181,8 +209,8 @@ class TestNonStreaming:
     async def test_backend_unavailable_maps_to_502(self, client_factory: Any) -> None:
         backend = _FakeBackend(error=BackendUnavailableError("down", backend="small"))
 
-        async with client_factory(backend) as client:
-            response = await client.post("/v2/chat/completions", json=_payload(stream=False))
+        async with (await client_factory(backend)) as client:
+            response = await client.post("/chat/completions", json=_payload(stream=False))
 
         assert response.status_code == 502
 
@@ -191,9 +219,9 @@ class TestRequestValidation:
     async def test_rejects_empty_messages(self, client_factory: Any) -> None:
         backend = _FakeBackend()
 
-        async with client_factory(backend) as client:
+        async with (await client_factory(backend)) as client:
             response = await client.post(
-                "/v2/chat/completions",
+                "/chat/completions",
                 json={"model": "small", "messages": []},
             )
 
@@ -202,9 +230,9 @@ class TestRequestValidation:
     async def test_rejects_temperature_out_of_range(self, client_factory: Any) -> None:
         backend = _FakeBackend()
 
-        async with client_factory(backend) as client:
+        async with (await client_factory(backend)) as client:
             response = await client.post(
-                "/v2/chat/completions",
+                "/chat/completions",
                 json={
                     "model": "small",
                     "messages": [{"role": "user", "content": "hi"}],
