@@ -69,7 +69,9 @@ def _final_chunk(*, model: str = "fake-model") -> ChatChunk:
     )
 
 
-async def _app_with_backend(backend: Any, tenant_limits: TenantLimits) -> tuple[FastAPI, fakeredis.aioredis.FakeRedis]:
+async def _app_with_backend(
+    backend: Any, tenant_limits: TenantLimits
+) -> tuple[FastAPI, fakeredis.aioredis.FakeRedis]:
     redis_client = fakeredis.aioredis.FakeRedis(decode_responses=False)
     await redis_client.flushall()
 
@@ -101,11 +103,14 @@ async def _app_with_backend(backend: Any, tenant_limits: TenantLimits) -> tuple[
 @pytest.fixture
 def client_factory():
     async def _make(backend: Any) -> httpx.AsyncClient:
-        app, redis_client = await _app_with_backend(backend, TenantLimits(
-            requests_per_min=2,  # only 2 allowed per minute
-            tokens_per_min=100_000,
-            daily_budget_usd=10.0,
-        ))
+        app, redis_client = await _app_with_backend(
+            backend,
+            TenantLimits(
+                requests_per_min=2,  # only 2 allowed per minute
+                tokens_per_min=100_000,
+                daily_budget_usd=10.0,
+            ),
+        )
         return httpx.AsyncClient(
             transport=ASGITransport(app=app),
             base_url="http://test",
@@ -184,7 +189,7 @@ class TestNonStreaming:
     async def test_returns_collected_json(self, client_factory: Any) -> None:
         backend = _FakeBackend(chunks=[_content_chunk("Hel"), _content_chunk("lo"), _final_chunk()])
 
-        async with (await client_factory(backend)) as client:
+        async with await client_factory(backend) as client:
             response = await client.post("/chat/completions", json=_payload(stream=False))
 
         assert response.status_code == 200
@@ -200,7 +205,7 @@ class TestNonStreaming:
     async def test_backend_rate_limit_maps_to_429(self, client_factory: Any) -> None:
         backend = _FakeBackend(error=BackendRateLimitError("slow down", backend="small"))
 
-        async with (await client_factory(backend)) as client:
+        async with await client_factory(backend) as client:
             response = await client.post("/chat/completions", json=_payload(stream=False))
 
         assert response.status_code == 429
@@ -209,7 +214,7 @@ class TestNonStreaming:
     async def test_backend_unavailable_maps_to_502(self, client_factory: Any) -> None:
         backend = _FakeBackend(error=BackendUnavailableError("down", backend="small"))
 
-        async with (await client_factory(backend)) as client:
+        async with await client_factory(backend) as client:
             response = await client.post("/chat/completions", json=_payload(stream=False))
 
         assert response.status_code == 502
@@ -219,7 +224,7 @@ class TestRequestValidation:
     async def test_rejects_empty_messages(self, client_factory: Any) -> None:
         backend = _FakeBackend()
 
-        async with (await client_factory(backend)) as client:
+        async with await client_factory(backend) as client:
             response = await client.post(
                 "/chat/completions",
                 json={"model": "small", "messages": []},
@@ -230,7 +235,7 @@ class TestRequestValidation:
     async def test_rejects_temperature_out_of_range(self, client_factory: Any) -> None:
         backend = _FakeBackend()
 
-        async with (await client_factory(backend)) as client:
+        async with await client_factory(backend) as client:
             response = await client.post(
                 "/chat/completions",
                 json={
