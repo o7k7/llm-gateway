@@ -4,7 +4,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 
-from app.accounting import TokenBucket, Ledger, PricingTable
+from app.accounting import Ledger, PricingTable, TokenBucket
 from app.auth import CurrentTenant
 from app.backends import (
     Backend,
@@ -18,12 +18,12 @@ from app.backends import (
 from app.dependencies import (
     CurrentBackends,
     CurrentBucket,
-    CurrentLedger,
     CurrentEstimator,
+    CurrentLedger,
     CurrentPricing,
 )
 from app.routing.routing import resolve_backend as _routing_resolve
-from app.schemas import ChatRequest, Usage, Tenant
+from app.schemas import ChatRequest, Tenant, Usage
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -108,6 +108,7 @@ async def chat_completions(
             estimated_cost=estimated_cost,
             req=req,
         ),
+        headers=headers,
     )
 
 
@@ -121,7 +122,9 @@ async def _enforce_rpm(bucket: TokenBucket, tenant: Tenant) -> None:
         cost=1,
     )
     if not result.allowed:
-        raise _backend_error_to_http(BackendRateLimitError("Request rate limit exceeded"))
+        raise _backend_error_to_http(
+            BackendRateLimitError("Request rate limit exceeded"), headers={"Retry-After": "60"}
+        )
 
 
 async def _enforce_tpm(bucket: TokenBucket, tenant: Tenant, est_cost: int) -> None:
@@ -133,7 +136,9 @@ async def _enforce_tpm(bucket: TokenBucket, tenant: Tenant, est_cost: int) -> No
         cost=est_cost,
     )
     if not result.allowed:
-        raise _backend_error_to_http(BackendRateLimitError("Token rate limit exceeded"))
+        raise _backend_error_to_http(
+            BackendRateLimitError("Token rate limit exceeded"), headers={"Retry-After": "60"}
+        )
 
 
 async def _sse_stream_accounted(
@@ -312,13 +317,21 @@ def _error_type(e: BackendError) -> str:
     return mapping.get(type(e), "backend_error")
 
 
-def _backend_error_to_http(e: BackendError) -> HTTPException:
+def _backend_error_to_http(e: BackendError, headers: dict[str, str] | None = None) -> HTTPException:
     if isinstance(e, BackendAuthError):
-        return HTTPException(500, detail={"error": {"message": "Upstream auth failed"}})
+        return HTTPException(
+            500, detail={"error": {"message": "Upstream auth failed"}}, headers=headers
+        )
     if isinstance(e, BackendRateLimitError):
-        return HTTPException(429, detail={"error": {"message": str(e)}})
+        return HTTPException(429, detail={"error": {"message": str(e)}}, headers=headers)
     if isinstance(e, BackendTimeoutError):
-        return HTTPException(504, detail={"error": {"message": "Upstream timeout"}})
+        return HTTPException(
+            504, detail={"error": {"message": "Upstream timeout"}}, headers=headers
+        )
     if isinstance(e, BackendUnavailableError):
-        return HTTPException(502, detail={"error": {"message": "Upstream unavailable"}})
-    return HTTPException(500, detail={"error": {"message": "Internal backend error"}})
+        return HTTPException(
+            502, detail={"error": {"message": "Upstream unavailable"}}, headers=headers
+        )
+    return HTTPException(
+        500, detail={"error": {"message": "Internal backend error"}}, headers=headers
+    )

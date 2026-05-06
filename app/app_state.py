@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import redis.asyncio as aioredis
 
-from app.accounting import TokenBucket, Ledger, TokenEstimator, PricingTable
+from app.accounting import Ledger, PricingTable, TokenBucket, TokenEstimator
 from app.backends import BackendRegistry
 from app.config import Config
 

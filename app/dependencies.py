@@ -5,7 +5,7 @@ from fastapi.params import Depends
 from redis.asyncio import Redis
 from sentence_transformers import SentenceTransformer
 
-from app.accounting import TokenBucket, Ledger, TokenEstimator, PricingTable
+from app.accounting import Ledger, PricingTable, TokenBucket, TokenEstimator
 from app.app_state import AppState
 from app.backends import BackendRegistry
 from app.config import Config
