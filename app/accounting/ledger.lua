@@ -19,7 +19,7 @@ local total_in = redis.call("HINCRBY", tenant, "tokens_in", tokens_in)
 local total_out = redis.call("HINCRBY", tenant, "tokens_out", tokens_out)
 local total_usd = redis.call("HINCRBY", tenant, "usd_micros", cost_usd_micros)
 redis.call("HINCRBY", tenant, "requests", 1)
-redis.call("HINCRBY", tenant, ttl_s)
+redis.call("EXPIRE", tenant, ttl_s)
 
 local under_budget = 1
 if daily_cap_micros > 0 and total_usd > daily_cap_micros then

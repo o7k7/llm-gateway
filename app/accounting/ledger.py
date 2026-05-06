@@ -1,11 +1,10 @@
 import hashlib
 import logging
-from datetime import datetime, UTC
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import redis.asyncio as redis
-from dataclasses import dataclass
-
 from redis.exceptions import NoScriptError
 
 logger = logging.getLogger(__name__)
@@ -69,8 +68,8 @@ class Ledger:
         args: list[object] = [
             tokens_in,
             tokens_out,
-            int(round(cost_usd * 1e6)),
-            int(round(daily_cap_usd * 1e6)),
+            round(cost_usd * 1e6),
+            round(daily_cap_usd * 1e6),
             self._ttl_s,
         ]
 
