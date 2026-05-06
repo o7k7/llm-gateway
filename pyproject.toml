@@ -37,6 +37,7 @@ dev = [
     "pytest-cov>=6.0",
     "testcontainers[redis]>=4.9",
     "respx>=0.22",
+    "fakeredis[lua]>=2.26",
 ]
 bench = [
     "transformers>=4.46",

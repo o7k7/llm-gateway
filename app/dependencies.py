@@ -5,6 +5,7 @@ from fastapi.params import Depends
 from redis.asyncio import Redis
 from sentence_transformers import SentenceTransformer
 
+from app.accounting import Ledger, PricingTable, TokenBucket, TokenEstimator
 from app.app_state import AppState
 from app.backends import BackendRegistry
 from app.config import Config
@@ -50,4 +51,24 @@ def get_backends(state: Annotated[AppState, Depends(get_app_state)]) -> BackendR
     return state.backends
 
 
+def get_bucket(state: Annotated[AppState, Depends(get_app_state)]) -> TokenBucket:
+    return state.bucket
+
+
+def get_ledger(state: Annotated[AppState, Depends(get_app_state)]) -> Ledger:
+    return state.ledger
+
+
+def get_estimator(state: Annotated[AppState, Depends(get_app_state)]) -> TokenEstimator:
+    return state.estimator
+
+
+def get_pricing(state: Annotated[AppState, Depends(get_app_state)]) -> PricingTable:
+    return state.pricing
+
+
 CurrentBackends = Annotated[BackendRegistry, Depends(get_backends)]
+CurrentBucket = Annotated[TokenBucket, Depends(get_bucket)]
+CurrentLedger = Annotated[Ledger, Depends(get_ledger)]
+CurrentEstimator = Annotated[TokenEstimator, Depends(get_estimator)]
+CurrentPricing = Annotated[PricingTable, Depends(get_pricing)]
