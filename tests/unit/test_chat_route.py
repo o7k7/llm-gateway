@@ -6,13 +6,11 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
+import fakeredis.aioredis
 import httpx
 import pytest
-
-from app.accounting import TokenBucket, Ledger, TokenEstimator, PricingTable
+from app.accounting import Ledger, PricingTable, TokenBucket, TokenEstimator
 from app.app_state import AppState
-import fakeredis.aioredis
-
 from app.auth import get_current_tenant
 from app.backends import BackendRegistry
 from app.backends.errors import BackendRateLimitError, BackendUnavailableError
@@ -103,7 +101,7 @@ async def _app_with_backend(
 @pytest.fixture
 def client_factory():
     async def _make(backend: Any) -> httpx.AsyncClient:
-        app, redis_client = await _app_with_backend(
+        app, _ = await _app_with_backend(
             backend,
             TenantLimits(
                 requests_per_min=2,  # only 2 allowed per minute
