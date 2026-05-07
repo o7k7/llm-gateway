@@ -1,4 +1,4 @@
-.PHONY: up up-redis-stack lint-format run-linter up-vllm-small down-vllm-small
+.PHONY: up up-redis-stack lint-format run-linter up-vllm-small down-vllm-small install-spacy-model
 
 up:
 	docker compose up -d
@@ -11,6 +11,9 @@ lint-format:
 
 run-linter:
 	uv run ruff check app
+
+install-spacy-model:
+	uv run python -m spacy download en_core_web_sm
 
 up-vllm-small:
 	docker run --rm -it \
