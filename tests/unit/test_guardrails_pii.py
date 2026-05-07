@@ -1,8 +1,8 @@
 """Tests for PresidioPIIGuardrail — detection, redaction, and policy behavior."""
+
 from __future__ import annotations
 
 import pytest
-
 from app.guardrails import GuardrailOutcome
 from app.guardrails.pii import PIIConfig, PIIPolicy, PresidioPIIGuardrail
 from app.schemas.chat import ChatRequest, ImagePart, TextPart
@@ -29,13 +29,10 @@ def _req(content: str) -> ChatRequest:
         }
     )
 
+
 class TestRedactPolicy:
-    async def test_email_is_redacted(
-            self, analyzer: AnalyzerEngine, tenant: Tenant
-    ) -> None:
-        guard = PresidioPIIGuardrail(
-            analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.REDACT)
-        )
+    async def test_email_is_redacted(self, analyzer: AnalyzerEngine, tenant: Tenant) -> None:
+        guard = PresidioPIIGuardrail(analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.REDACT))
         req = _req("Contact me at john.doe@example.com for details")
         result = await guard.check(req, tenant)
 
@@ -45,12 +42,8 @@ class TestRedactPolicy:
         assert "john.doe@example.com" not in new_content
         assert "[EMAIL_ADDRESS]" in new_content
 
-    async def test_phone_is_redacted(
-            self, analyzer: AnalyzerEngine, tenant: Tenant
-    ) -> None:
-        guard = PresidioPIIGuardrail(
-            analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.REDACT)
-        )
+    async def test_phone_is_redacted(self, analyzer: AnalyzerEngine, tenant: Tenant) -> None:
+        guard = PresidioPIIGuardrail(analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.REDACT))
         req = _req("Call me at 555-123-4567")
         result = await guard.check(req, tenant)
 
@@ -58,11 +51,9 @@ class TestRedactPolicy:
         assert "[PHONE_NUMBER]" in str(result.request.messages[0].content)
 
     async def test_multiple_entities_in_one_message(
-            self, analyzer: AnalyzerEngine, tenant: Tenant
+        self, analyzer: AnalyzerEngine, tenant: Tenant
     ) -> None:
-        guard = PresidioPIIGuardrail(
-            analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.REDACT)
-        )
+        guard = PresidioPIIGuardrail(analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.REDACT))
         req = _req("Email alice@test.com or call 555-987-6543")
         result = await guard.check(req, tenant)
 
@@ -73,7 +64,7 @@ class TestRedactPolicy:
         assert result.metadata["redaction_count"] >= 2
 
     async def test_no_pii_passes_through_unchanged(
-            self, analyzer: AnalyzerEngine, tenant: Tenant
+        self, analyzer: AnalyzerEngine, tenant: Tenant
     ) -> None:
         guard = PresidioPIIGuardrail(analyzer=analyzer)
         req = _req("What is the capital of France?")
@@ -87,9 +78,7 @@ class TestBlockPolicy:
     async def test_pii_blocks_when_policy_is_block(
         self, analyzer: AnalyzerEngine, tenant: Tenant
     ) -> None:
-        guard = PresidioPIIGuardrail(
-            analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.BLOCK)
-        )
+        guard = PresidioPIIGuardrail(analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.BLOCK))
         req = _req("My email is alice@test.com")
         result = await guard.check(req, tenant)
 
@@ -102,12 +91,11 @@ class TestBlockPolicy:
     async def test_clean_text_passes_under_block_policy(
         self, analyzer: AnalyzerEngine, tenant: Tenant
     ) -> None:
-        guard = PresidioPIIGuardrail(
-            analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.BLOCK)
-        )
+        guard = PresidioPIIGuardrail(analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.BLOCK))
         req = _req("What is 2 + 2?")
         result = await guard.check(req, tenant)
         assert result.outcome is GuardrailOutcome.PASSED
+
 
 class TestMultiMessageHandling:
     async def test_pii_in_system_message_redacted(
@@ -157,7 +145,6 @@ class TestMultiMessageHandling:
         assert "carol@second.com" not in third_user
         assert "[EMAIL_ADDRESS]" in first_user
         assert "[EMAIL_ADDRESS]" in third_user
-
 
 
 class TestMultimodalRedaction:
@@ -226,7 +213,6 @@ class TestMultimodalRedaction:
         assert result.outcome is GuardrailOutcome.PASSED
 
 
-
 class TestEdgeCases:
     async def test_empty_message_content_handled(
         self, analyzer: AnalyzerEngine, tenant: Tenant
@@ -259,12 +245,8 @@ class TestEdgeCases:
         """A very high score threshold should cause borderline matches to be
         ignored. We pin the behavior so future Presidio upgrades don't
         silently change sensitivity."""
-        strict = PresidioPIIGuardrail(
-            analyzer=analyzer, config=PIIConfig(min_score=0.99)
-        )
-        loose = PresidioPIIGuardrail(
-            analyzer=analyzer, config=PIIConfig(min_score=0.2)
-        )
+        strict = PresidioPIIGuardrail(analyzer=analyzer, config=PIIConfig(min_score=0.99))
+        loose = PresidioPIIGuardrail(analyzer=analyzer, config=PIIConfig(min_score=0.2))
         # An ambiguous number that Presidio might score as low-confidence PHONE
         req = _req("Reference number 555 0100 in our system")
 
