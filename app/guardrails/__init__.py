@@ -1,10 +1,4 @@
-"""Content guardrails — pre-request inspection and transformation.
-
-Guardrails inspect a ChatRequest before it reaches the backend. They can:
-- Transform the request (e.g., scrub PII from messages)
-- Block the request (raise GuardrailError → 400)
-- Flag metadata for observability (reason, entities detected, etc.)
-"""
+"""Content guardrails — pre-request inspection and transformation."""
 
 from __future__ import annotations
 
@@ -14,15 +8,23 @@ from app.guardrails.base import (
     GuardrailResult,
 )
 from app.guardrails.errors import GuardrailBlockedError, GuardrailError
-from app.guardrails.pii import PresidioPIIGuardrail
+from app.guardrails.jailbreak import (
+    DEFAULT_JAILBREAK_PHRASES,
+    JailbreakGuardrail,
+)
+from app.guardrails.pii import PIIConfig, PIIPolicy, PresidioPIIGuardrail
 from app.guardrails.registry import GuardrailRegistry
 
 __all__ = [
+    "DEFAULT_JAILBREAK_PHRASES",
     "Guardrail",
     "GuardrailBlockedError",
     "GuardrailError",
     "GuardrailOutcome",
     "GuardrailRegistry",
     "GuardrailResult",
+    "JailbreakGuardrail",
+    "PIIConfig",
+    "PIIPolicy",
     "PresidioPIIGuardrail",
 ]

@@ -55,6 +55,69 @@ class Config(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # Cache
+    cache_enabled: bool = Field(default=True, alias="CACHE_ENABLED")
+    """Feature flag. Set False in debugging scenarios to bypass the cache
+    without removing infrastructure."""
+
+    cache_ttl_s: int = Field(default=7200, alias="CACHE_TTL_S")
+    """Per-entry TTL in seconds. Default 2 hours preserves v0.1.0 behavior."""
+
+    cache_distance_threshold: float = Field(default=0.15, alias="CACHE_DISTANCE_THRESHOLD")
+    """Cosine distance threshold for cache hits. Lower = more similar.
+    Default 0.15 preserves v0.1.0 threshold."""
+
+    cache_embedder_model: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        alias="CACHE_EMBEDDER_MODEL",
+    )
+    """HuggingFace model id for the sentence transformer. Shared between
+    the semantic cache and the jailbreak guardrail."""
+
+    cache_embedder_lru_capacity: int = Field(default=512, alias="CACHE_EMBEDDER_LRU_CAPACITY")
+    """In-process LRU size for deduplicating encode calls. 512 prompts
+    @ ~1.5KB each = under 1MB memory."""
+
+    # PII guardrail
+    pii_enabled: bool = Field(default=True, alias="PII_ENABLED")
+
+    pii_policy: str = Field(default="REDACT", alias="PII_POLICY")
+
+    pii_min_score: float = Field(default=0.5, alias="PII_MIN_SCORE")
+    """Presidio confidence threshold; matches below this score are ignored."""
+
+    pii_entities: list[str] = Field(
+        default=[
+            "EMAIL_ADDRESS",
+            "PHONE_NUMBER",
+            "CREDIT_CARD",
+            "IBAN_CODE",
+            "US_SSN",
+            "IP_ADDRESS",
+        ],
+        alias="PII_ENTITIES",
+    )
+
+    # Jailbreak guardrail
+    jailbreak_enabled: bool = Field(default=True, alias="JAILBREAK_ENABLED")
+
+    jailbreak_similarity_threshold: float = Field(
+        default=0.75, alias="JAILBREAK_SIMILARITY_THRESHOLD"
+    )
+    """Cosine similarity threshold above which a prompt is classified as
+    a jailbreak attempt. Default 0.75 preserves v0.1.0 tuning."""
+
+    jailbreak_phrases: list[str] = Field(
+        default=[
+            "fail safe mode",
+            "act as a developer",
+            "system override",
+            "you are a linux terminal",
+            "ignore all previous instructions",
+        ],
+        alias="JAILBREAK_PHRASES",
+    )
+
 
 @lru_cache
 def get_config() -> Config:
