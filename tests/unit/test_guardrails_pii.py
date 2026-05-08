@@ -44,7 +44,7 @@ class TestRedactPolicy:
 
     async def test_phone_is_redacted(self, analyzer: AnalyzerEngine, tenant: Tenant) -> None:
         guard = PresidioPIIGuardrail(analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.REDACT))
-        req = _req("Call me at 555-123-4567")
+        req = _req("My phone number is (555) 123-4567")
         result = await guard.check(req, tenant)
 
         assert result.outcome is GuardrailOutcome.TRANSFORMED
@@ -54,7 +54,7 @@ class TestRedactPolicy:
         self, analyzer: AnalyzerEngine, tenant: Tenant
     ) -> None:
         guard = PresidioPIIGuardrail(analyzer=analyzer, config=PIIConfig(policy=PIIPolicy.REDACT))
-        req = _req("Email alice@test.com or call 555-987-6543")
+        req = _req("Email alice@test.com or phone number 555-987-6543")
         result = await guard.check(req, tenant)
 
         assert result.outcome is GuardrailOutcome.TRANSFORMED
