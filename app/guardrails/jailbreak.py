@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_JAILBREAK_PHRASES: tuple[str, ...] = (
     "fail safe mode",
     "act as a developer",
+    "act as a developer for tests",
     "system override",
     "you are a linux terminal",
     "ignore all previous instructions",
