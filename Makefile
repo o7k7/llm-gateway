@@ -10,7 +10,7 @@ lint-format:
 	uv run ruff format app tests
 
 run-linter:
-	uv run ruff check app
+	uv run ruff check app tests --fix
 
 install-spacy-model:
 	uv run python -m spacy download en_core_web_sm
