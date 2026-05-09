@@ -4,7 +4,9 @@ import redis.asyncio as aioredis
 
 from app.accounting import Ledger, PricingTable, TokenBucket, TokenEstimator
 from app.backends import BackendRegistry
+from app.cache import Embedder, SemanticCache
 from app.config import Config
+from app.guardrails import GuardrailRegistry
 
 
 @dataclass
@@ -16,3 +18,6 @@ class AppState:
     ledger: Ledger
     estimator: TokenEstimator
     pricing: PricingTable
+    guardrails: GuardrailRegistry
+    cache: SemanticCache | None
+    embedder: Embedder | None  # None when both cache+jailbreak disabled

@@ -15,17 +15,22 @@ from app.backends import (
     BackendTimeoutError,
     BackendUnavailableError,
 )
+from app.cache import CachedEntry, CacheKey, cache_key_hash
 from app.dependencies import (
     CurrentBackends,
     CurrentBucket,
+    CurrentCache,
     CurrentEstimator,
+    CurrentGuardrails,
     CurrentLedger,
     CurrentPricing,
 )
+from app.guardrails import GuardrailBlockedError
 from app.routing.routing import resolve_backend as _routing_resolve
-from app.schemas import ChatRequest, Tenant, Usage
+from app.schemas import ChatChunk, ChatRequest, ChoiceChunk, Delta, Tenant, Usage
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette import status
 
 logger = logging.getLogger(__name__)
 
@@ -44,24 +49,61 @@ async def chat_completions(
     tenant: CurrentTenant,
     backends: CurrentBackends,
     bucket: CurrentBucket,
+    guardrails: CurrentGuardrails,
     ledger: CurrentLedger,
     estimator: CurrentEstimator,
     pricing: CurrentPricing,
+    sm_cache: CurrentCache,
 ) -> StreamingResponse | JSONResponse:
-    estimated_cost = estimator.estimate_budget(
-        req, default_max_tokens=_DEFAULT_PREFLIGHT_MAX_TOKENS
-    )
+    try:
+        transformed_req, guardrail_results = await guardrails.run(req, tenant)
+    except GuardrailBlockedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "message": "Request blocked by content guardrail",
+                    "type": "guardrail_blocked",
+                    "guardrail": e.guardrail,
+                    "reason": e.reason,
+                }
+            },
+        ) from e
 
+    backend, route_reason = _resolve_backend(backends, transformed_req)
     current_spend = await ledger.current_spend_usd(tenant_id=tenant.id)
 
     if current_spend >= tenant.limits.daily_budget_usd > 0:
         raise _backend_error_to_http(BackendRateLimitError("Daily budget exhausted"))
 
-    # Consume - Pre-flight
     await _enforce_rpm(bucket, tenant)
-    await _enforce_tpm(bucket, tenant, estimated_cost)
+    key = cache_key_hash(transformed_req, tenant_id=tenant.id, model=backend.model)
+    prompt_text = transformed_req.text_for_routing()
 
-    backend, route_reason = _resolve_backend(backends, req)
+    cached = None
+    if sm_cache is not None and transformed_req.stream_only_hint():
+        cached = await sm_cache.get(key=key, prompt=prompt_text)
+
+    common_headers = _base_headers(
+        tenant=tenant,
+        backend=backend,
+        route_reason=route_reason,
+        guardrail_results=guardrail_results,
+    )
+
+    if cached is not None:
+        common_headers["X-Gateway-Cache"] = "HIT"
+        return _cache_hit_response(req=transformed_req, cached=cached, headers=common_headers)
+
+    common_headers["X-Gateway-Cache"] = "MISS"
+
+    estimated_cost = estimator.estimate_budget(
+        transformed_req, default_max_tokens=_DEFAULT_PREFLIGHT_MAX_TOKENS
+    )
+
+    common_headers["X-Gateway-Estimated-Cost"] = str(estimated_cost)
+    # Consume - Pre-flight
+    await _enforce_tpm(bucket, tenant, estimated_cost)
 
     logger.info(
         "route: model=%s → backend=%s (reason=%s)",
@@ -70,19 +112,11 @@ async def chat_completions(
         route_reason,
     )
 
-    headers = {
-        "X-Gateway-Backend": backend.name,
-        "X-Gateway-Model": backend.model,
-        "X-Gateway-Route-Reason": route_reason,
-        "X-Gateway-Tenant": tenant.id,
-        "X-Gateway-Estimated-Cost": str(estimated_cost),
-    }
-
-    if req.stream:
+    if transformed_req.stream:
         return StreamingResponse(
             _sse_stream_accounted(
                 backend=backend,
-                req=req,
+                req=transformed_req,
                 est_cost=estimated_cost,
                 pricing=pricing,
                 tenant=tenant,
@@ -91,7 +125,7 @@ async def chat_completions(
             ),
             media_type="text/event-stream",
             headers={
-                **headers,
+                **common_headers,
                 "Cache-Control": "no-cache",
                 # https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering
                 "X-Accel-Buffering": "no",  # disable nginx buffering
@@ -99,16 +133,19 @@ async def chat_completions(
         )
 
     return JSONResponse(
-        await _collect_non_streaming_accounted(
-            ledger=ledger,
-            bucket=bucket,
-            tenant=tenant,
-            pricing=pricing,
+        await _collect_non_streaming_accounted_with_cache(
             backend=backend,
+            req=transformed_req,
+            tenant=tenant,
+            bucket=bucket,
+            ledger=ledger,
+            pricing=pricing,
+            cache=sm_cache,
+            cache_key=key,
+            prompt_text=prompt_text,
             estimated_cost=estimated_cost,
-            req=req,
         ),
-        headers=headers,
+        headers=common_headers,
     )
 
 
@@ -139,6 +176,26 @@ async def _enforce_tpm(bucket: TokenBucket, tenant: Tenant, est_cost: int) -> No
         raise _backend_error_to_http(
             BackendRateLimitError("Token rate limit exceeded"), headers={"Retry-After": "60"}
         )
+
+
+def _base_headers(
+    *,
+    tenant: Tenant,
+    backend: Backend,
+    route_reason: str,
+    guardrail_results: list,
+) -> dict[str, str]:
+    """Base set of X-Gateway-* headers for every response."""
+    headers = {
+        "X-Gateway-Tenant": tenant.id,
+        "X-Gateway-Backend": backend.name,
+        "X-Gateway-Model": backend.model,
+        "X-Gateway-Route-Reason": route_reason,
+    }
+    applied = [r for r in guardrail_results if r.outcome.value != "passed"]
+    if applied:
+        headers["X-Gateway-Guardrails"] = ",".join(f"{type(r).__name__.lower()}" for r in applied)
+    return headers
 
 
 async def _sse_stream_accounted(
@@ -206,7 +263,69 @@ def _resolve_backend(backends: BackendRegistry, req: ChatRequest) -> tuple[Backe
     return backends.get(name), reason
 
 
-async def _collect_non_streaming_accounted(
+def _cache_hit_response(
+    *, req: ChatRequest, cached: object, headers: dict[str, str]
+) -> StreamingResponse | JSONResponse:
+    """Build either a synthetic SSE stream or a JSON body from a cache hit."""
+    assert isinstance(cached, CachedEntry)
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex}"
+    created = int(time.time())
+
+    if not req.stream:
+        return JSONResponse(
+            content={
+                "id": chunk_id,
+                "object": "chat.completion",
+                "created": created,
+                "model": cached.model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": cached.content},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": cached.usage.model_dump() if cached.usage else None,
+            },
+            headers=headers,
+        )
+
+    async def _synthetic_stream() -> AsyncIterator[str]:
+        chunk1 = ChatChunk(
+            id=chunk_id,
+            created=created,
+            model=cached.model,
+            choices=[
+                ChoiceChunk(
+                    index=0,
+                    delta=Delta(role="assistant", content=cached.content),
+                )
+            ],
+        )
+        yield f"data: {chunk1.model_dump_json(exclude_none=True)}\n\n"
+
+        chunk2 = ChatChunk(
+            id=chunk_id,
+            created=created,
+            model=cached.model,
+            choices=[ChoiceChunk(index=0, delta=Delta(), finish_reason="stop")],
+            usage=cached.usage,
+        )
+        yield f"data: {chunk2.model_dump_json(exclude_none=True)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _synthetic_stream(),
+        media_type="text/event-stream",
+        headers={
+            **headers,
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def _collect_non_streaming_accounted_with_cache(
     *,
     backend: Backend,
     req: ChatRequest,
@@ -214,6 +333,9 @@ async def _collect_non_streaming_accounted(
     bucket: TokenBucket,
     ledger: Ledger,
     pricing: PricingTable,
+    cache: CurrentCache | None,
+    cache_key: CacheKey,
+    prompt_text: str,
     estimated_cost: int,
 ) -> dict[str, object]:
     content_parts: list[str] = []
@@ -243,6 +365,18 @@ async def _collect_non_streaming_accounted(
                 usage=usage,
                 est_cost=estimated_cost,
             )
+            if cache is not None and content_parts:
+                try:
+                    await cache.put(
+                        key=cache_key,
+                        prompt=prompt_text,
+                        response="".join(content_parts),
+                        usage=usage,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Cache put failed for tenant=%s backend=%s", tenant.id, backend.name
+                    )
 
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex}",
@@ -335,3 +469,12 @@ def _backend_error_to_http(e: BackendError, headers: dict[str, str] | None = Non
     return HTTPException(
         500, detail={"error": {"message": "Internal backend error"}}, headers=headers
     )
+
+
+def stream_only_hint(self) -> bool:
+    """Hook for request shapes that should never be served from cache.
+
+    For now its always False; future PRs may override for tool calls or
+    other non-deterministic shapes where caching would be misleading.
+    """
+    return False

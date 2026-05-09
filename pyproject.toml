@@ -26,6 +26,8 @@ dependencies = [
     "async-lru>=2.3.0",
     "pytest-env>=1.6.0",
     "magika>=1.0.3",
+    "en-core-web-sm",
+    "aioredis>=2.0.1",
 ]
 
 [dependency-groups]
@@ -35,7 +37,7 @@ dev = [
     "pytest>=9.0",
     "pytest-asyncio>=1.3",
     "pytest-cov>=6.0",
-    "testcontainers[redis]>=4.9",
+    "testcontainers[redis]>=4.8",
     "respx>=0.22",
     "fakeredis[lua]>=2.26",
 ]
@@ -93,3 +95,6 @@ env = [
 init_forbid_extra = true
 init_typed = true
 warn_required_dynamic_aliases = true
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }

@@ -2,18 +2,26 @@ import logging
 from contextlib import asynccontextmanager
 
 import litellm
+import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
-from fastapi_limiter import FastAPILimiter
+from presidio_analyzer import AnalyzerEngine
+from sentence_transformers import SentenceTransformer
 
 from app.accounting import Ledger, TokenBucket, TokenEstimator, get_pricing_table
 from app.app_state import AppState
 from app.backends import BackendRegistry, LiteLLMBackend, VLLMBackend
+from app.cache import Embedder, SemanticCache
 from app.config import Config, get_config
-from app.core.mini_lm_sentence_transformer import get_model_instance
 from app.dependencies import get_app_state
+from app.guardrails import (
+    GuardrailRegistry,
+    JailbreakGuardrail,
+    PIIConfig,
+    PIIPolicy,
+    PresidioPIIGuardrail,
+)
 from app.redis.redis_client import dispose_redis, get_redis
 from app.routers import chat, chat_v2
-from app.services.semantic_cache import SemanticCache
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +40,15 @@ async def lifespan(_: FastAPI):
     ledger = Ledger(client=redis_client)
     estimator = TokenEstimator(encoding_name=config.tokenizer_encoding_name)
     pricing = get_pricing_table()
+
+    embedder = _build_embedder(config=config) if _needs_embedder(config) else None
+    cache = (
+        _build_cache(config, redis_client=redis_client, embedder=embedder)
+        if config.cache_enabled and embedder is not None
+        else None
+    )
+    guardrails = await _build_guardrails(config=config, embedder=embedder)
+
     app.state.app_state = AppState(
         config=config,
         backends=backends,
@@ -40,14 +57,12 @@ async def lifespan(_: FastAPI):
         pricing=pricing,
         redis=redis_client,
         bucket=bucket,
+        embedder=embedder,
+        guardrails=guardrails,
+        cache=cache,
     )
     logger.info("Gateway ready: env=%s backends=%s", config.env, backends.names())
 
-    await FastAPILimiter.init(redis_client)
-    model = get_model_instance()
-    cache_service = SemanticCache(redis_client=redis_client, sentence_transformer=model)
-
-    await cache_service.initialize_cache_index()
     try:
         yield
     finally:
@@ -70,6 +85,17 @@ def _configure_litellm_globals(config: Config):
         logger.info("LiteLLM Langfuse enabled")
     else:
         logger.info("Langfuse keys not set")
+
+
+def _needs_embedder(config: Config) -> bool:
+    return config.cache_enabled or config.jailbreak_enabled
+
+
+def _build_embedder(config: Config) -> Embedder:
+    """Load the sentence-transformer model. Done lazily"""
+    logger.info("Loading sentence-transformer: %s", config.cache_embedder_model)
+    model = SentenceTransformer(config.cache_embedder_model)
+    return Embedder(model, lru_capacity=config.cache_embedder_lru_capacity)
 
 
 def _build_backends(config: Config):
@@ -119,6 +145,47 @@ async def _probe_backends(backends: BackendRegistry) -> None:
             logger.exception(e)
             success = False
         logger.info(f"Probe backend: {backend.name} success: {success}")
+
+
+def _build_cache(config: Config, redis_client: aioredis.Redis, embedder: Embedder) -> SemanticCache:
+    return SemanticCache(
+        redis_client=redis_client,
+        embedder=embedder,
+        distance_threshold=config.cache_distance_threshold,
+        ttl_s=config.cache_ttl_s,
+    )
+
+
+async def _build_guardrails(config: Config, embedder: Embedder | None) -> GuardrailRegistry:
+    """Build guardrails in pipeline order: PII first (so jailbreak sees
+    scrubbed text), jailbreak second."""
+    registry = GuardrailRegistry()
+
+    if config.pii_enabled:
+        logger.info("Loading Presidio AnalyzerEngine (this takes a moment...)")
+        analyzer = AnalyzerEngine()
+        pii_guardrail = PresidioPIIGuardrail(
+            analyzer=analyzer,
+            config=PIIConfig(
+                policy=PIIPolicy(config.pii_policy),
+                min_score=config.pii_min_score,
+                entities=tuple(config.pii_entities),
+            ),
+        )
+        registry.register(pii_guardrail)
+
+    if config.jailbreak_enabled:
+        if embedder is None:
+            logger.warning("Jailbreak enabled but no embedder available; skipping")
+        else:
+            jailbreak_guardrail = JailbreakGuardrail(
+                embedder=embedder,
+                phrases=tuple(config.jailbreak_phrases),
+                similarity_threshold=config.jailbreak_similarity_threshold,
+            )
+            registry.register(jailbreak_guardrail)
+
+    return registry
 
 
 app = FastAPI(title="LLM Gateway", version="0.2.0", lifespan=lifespan)
