@@ -8,8 +8,10 @@ from sentence_transformers import SentenceTransformer
 from app.accounting import Ledger, PricingTable, TokenBucket, TokenEstimator
 from app.app_state import AppState
 from app.backends import BackendRegistry
+from app.cache.semantic import SemanticCache as SemanticCacheV2
 from app.config import Config
 from app.core.mini_lm_sentence_transformer import get_model_instance
+from app.guardrails import GuardrailRegistry
 from app.redis.redis_client import get_redis
 from app.services.chat_completion_service import ChatCompletionService
 from app.services.chat_completion_service_interface import IChatCompletionService
@@ -67,8 +69,18 @@ def get_pricing(state: Annotated[AppState, Depends(get_app_state)]) -> PricingTa
     return state.pricing
 
 
+def get_guardrails(state: Annotated[AppState, Depends(get_app_state)]) -> GuardrailRegistry:
+    return state.guardrails
+
+
+def get_cache(state: Annotated[AppState, Depends(get_app_state)]) -> SemanticCacheV2 | None:
+    return state.cache
+
+
 CurrentBackends = Annotated[BackendRegistry, Depends(get_backends)]
 CurrentBucket = Annotated[TokenBucket, Depends(get_bucket)]
 CurrentLedger = Annotated[Ledger, Depends(get_ledger)]
 CurrentEstimator = Annotated[TokenEstimator, Depends(get_estimator)]
 CurrentPricing = Annotated[PricingTable, Depends(get_pricing)]
+CurrentGuardrails = Annotated[GuardrailRegistry, Depends(get_guardrails)]
+CurrentCache = Annotated[SemanticCacheV2, Depends(get_cache)]
