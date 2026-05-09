@@ -9,12 +9,16 @@ from typing import Any
 import fakeredis.aioredis
 import httpx
 import pytest
+from sentence_transformers import SentenceTransformer
+
 from app.accounting import Ledger, PricingTable, TokenBucket, TokenEstimator
 from app.app_state import AppState
 from app.auth import get_current_tenant
 from app.backends import BackendRegistry
 from app.backends.errors import BackendRateLimitError, BackendUnavailableError
+from app.cache import Embedder
 from app.config import get_config
+from app.guardrails import GuardrailRegistry
 from app.routers.chat_v2 import chat_route_v2
 from app.schemas import Pricing, Tenant, TenantLimits
 from app.schemas.chat import ChatChunk, ChatRequest, ChoiceChunk, Delta, Usage
@@ -75,13 +79,20 @@ async def _app_with_backend(
 
     registry = BackendRegistry()
     registry.register(backend)
+    config = get_config()
+    model = SentenceTransformer(config.cache_embedder_model)
+    embedder = Embedder(model, lru_capacity=config.cache_embedder_lru_capacity)
+
     state = AppState(
-        config=get_config(),
+        config=config,
         backends=registry,
         redis=redis_client,
         bucket=TokenBucket(redis_client),
         ledger=Ledger(redis_client),
         estimator=TokenEstimator(),
+        embedder=embedder,
+        cache=None,
+        guardrails=GuardrailRegistry(),
         pricing=PricingTable(
             entries=(Pricing(model="fake-model", input_per_1m=1.0, output_per_1m=3.0),)
         ),
