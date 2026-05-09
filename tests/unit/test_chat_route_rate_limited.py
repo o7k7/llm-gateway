@@ -12,8 +12,6 @@ from typing import Any
 import fakeredis.aioredis
 import httpx
 import pytest
-from sentence_transformers import SentenceTransformer
-
 from app.accounting import Ledger, PricingTable, TokenBucket, TokenEstimator
 from app.app_state import AppState
 from app.auth import get_current_tenant
@@ -26,6 +24,7 @@ from app.schemas.chat import ChatChunk, ChatRequest, ChoiceChunk, Delta, Usage
 from app.schemas.tenant import Pricing, Tenant, TenantLimits
 from fastapi import FastAPI
 from httpx import ASGITransport
+from sentence_transformers import SentenceTransformer
 
 # --------------------------------------------------------------------------
 # Fakes
