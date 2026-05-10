@@ -73,9 +73,10 @@ class Ledger:
             now = now_utc or datetime.now(UTC)
             key = self._key(tenant_id, now)
             args: list[object] = [
-                tokens_in, tokens_out,
-                int(round(cost_usd * 1_000_000)),
-                int(round(daily_cap_usd * 1_000_000)),
+                tokens_in,
+                tokens_out,
+                round(cost_usd * 1_000_000),
+                round(daily_cap_usd * 1_000_000),
                 self._ttl_s,
             ]
 

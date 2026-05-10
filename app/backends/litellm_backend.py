@@ -17,7 +17,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import litellm
-from opentelemetry.trace import StatusCode, Status
+from opentelemetry.trace import Status, StatusCode
 
 from app.backends.errors import (
     BackendAuthError,

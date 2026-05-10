@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
-from opentelemetry.trace import Span, Status, StatusCode
+from opentelemetry.trace import Status, StatusCode
 
 from app.backends.errors import (
     BackendAuthError,
@@ -72,11 +72,7 @@ class VLLMBackend:
             ) as response:
                 self._raise_for_status(response)
                 async for chunk in self._iter_sse_chunks(response):
-                    if (
-                            not ttft_emitted
-                            and chunk.choices
-                            and chunk.choices[0].delta.content
-                    ):
+                    if not ttft_emitted and chunk.choices and chunk.choices[0].delta.content:
                         span.add_event("vllm.ttft")
                         ttft_emitted = True
 
@@ -92,9 +88,7 @@ class VLLMBackend:
                 f"vLLM backend {self.name!r} unreachable: {e}", backend=self.name
             ) from e
         except httpx.HTTPError as e:
-            span.set_status(
-                Status(StatusCode.ERROR, f"http {e}")
-            )
+            span.set_status(Status(StatusCode.ERROR, f"http {e}"))
             raise BackendError(
                 f"vLLM backend {self.name!r} HTTP error: {e}", backend=self.name
             ) from e

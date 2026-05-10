@@ -108,13 +108,13 @@ class TokenBucket:
             s.set_attribute("gateway.ratelimit.capacity", capacity)
             key = self._key(tenant_id, suffix)
             args = [
-                capacity, refill_per_sec,
+                capacity,
+                refill_per_sec,
                 now_ms if now_ms is not None else _now_ms(),
-                cost, self._ttl_ms,
+                cost,
+                self._ttl_ms,
             ]
-            raw = await self._run(
-                self._consume_script, self._consume_sha, key, args
-            )
+            raw = await self._run(self._consume_script, self._consume_sha, key, args)
             allowed_raw, remaining_raw = raw
             result = BucketResult(
                 allowed=bool(int(allowed_raw)),
@@ -144,13 +144,12 @@ class TokenBucket:
             s.set_attribute("gateway.ratelimit.amount", amount)
             key = self._key(tenant_id, suffix)
             args = [
-                capacity, amount,
+                capacity,
+                amount,
                 now_ms if now_ms is not None else _now_ms(),
                 self._ttl_ms,
             ]
-            raw = await self._run(
-                self._refund_script, self._refund_sha, key, args
-            )
+            raw = await self._run(self._refund_script, self._refund_sha, key, args)
             return int(raw)
 
     def _key(self, tenant_id: str, suffix: str) -> str:

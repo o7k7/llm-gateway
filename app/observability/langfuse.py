@@ -7,6 +7,7 @@ don't hardcode string constants.
 
 Reference: https://langfuse.com/docs/opentelemetry/example-python-sdk
 """
+
 from __future__ import annotations
 
 from enum import StrEnum
@@ -134,18 +135,14 @@ def set_llm_attrs(
     if completion_tokens is not None:
         span.set_attribute(LangfuseAttrs.USAGE_OUTPUT, completion_tokens)
     if prompt_tokens is not None and completion_tokens is not None:
-        span.set_attribute(
-            LangfuseAttrs.USAGE_TOTAL, prompt_tokens + completion_tokens
-        )
+        span.set_attribute(LangfuseAttrs.USAGE_TOTAL, prompt_tokens + completion_tokens)
 
     if cost_input_usd is not None:
         span.set_attribute(LangfuseAttrs.COST_INPUT, cost_input_usd)
     if cost_output_usd is not None:
         span.set_attribute(LangfuseAttrs.COST_OUTPUT, cost_output_usd)
     if cost_input_usd is not None and cost_output_usd is not None:
-        span.set_attribute(
-            LangfuseAttrs.COST_TOTAL, cost_input_usd + cost_output_usd
-        )
+        span.set_attribute(LangfuseAttrs.COST_TOTAL, cost_input_usd + cost_output_usd)
 
 
 _MAX_TEXT_LEN = 2048

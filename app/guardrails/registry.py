@@ -6,7 +6,7 @@ import logging
 
 from app.guardrails.base import Guardrail, GuardrailOutcome, GuardrailResult
 from app.guardrails.errors import GuardrailBlockedError
-from app.observability import span, set_guardrail_attrs
+from app.observability import set_guardrail_attrs, span
 from app.schemas.chat import ChatRequest
 from app.schemas.tenant import Tenant
 
