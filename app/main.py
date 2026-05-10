@@ -21,6 +21,7 @@ from app.guardrails import (
     PIIPolicy,
     PresidioPIIGuardrail,
 )
+from app.observability import configure_observability, shutdown_observability
 from app.redis.redis_client import dispose_redis, get_redis
 from app.routers import chat, chat_v2
 
@@ -31,7 +32,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI):
     config = get_config()
     _configure_logging(config)
+    configure_observability(config)
     _configure_litellm_globals(config)
+
     backends = _build_backends(config)
     await _probe_backends(backends)
 
@@ -70,6 +73,7 @@ async def lifespan(_: FastAPI):
         logger.info("Shutting down gateway")
         await backends.aclose()
         await dispose_redis()
+        shutdown_observability()
 
 
 def _configure_logging(config: Config):
