@@ -4,8 +4,6 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 
-from opentelemetry.trace import Span, SpanKind
-
 from app.accounting import Ledger, PricingTable, TokenBucket
 from app.auth import CurrentTenant
 from app.backends import (
@@ -28,12 +26,20 @@ from app.dependencies import (
     CurrentPricing,
 )
 from app.guardrails import GuardrailBlockedError
-from app.observability import get_current_span, set_tenant_attrs, span, set_route_attrs, set_cache_attrs, set_llm_attrs
+from app.observability import (
+    get_current_span,
+    set_cache_attrs,
+    set_llm_attrs,
+    set_route_attrs,
+    set_tenant_attrs,
+    span,
+)
 from app.observability.tracing import attach_span
 from app.routing.routing import resolve_backend as _routing_resolve
 from app.schemas import ChatChunk, ChatRequest, ChoiceChunk, Delta, Tenant, Usage
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
+from opentelemetry.trace import Span, SpanKind
 from starlette import status
 
 logger = logging.getLogger(__name__)
@@ -89,7 +95,7 @@ async def chat_completions(
             client_model=req.model,
             resolved_backend=backend.name,
             resolved_model=backend.model,
-            reason=route_reason
+            reason=route_reason,
         )
         set_route_attrs(
             root_span,
@@ -107,8 +113,6 @@ async def chat_completions(
             b_span.set_attribute("gateway.budget.exceeded", True)
             raise _backend_error_to_http(BackendRateLimitError("Daily budget exhausted"))
 
-
-
     await _enforce_rpm(bucket, tenant)
     key = cache_key_hash(transformed_req, tenant_id=tenant.id, model=backend.model)
     prompt_text = transformed_req.text_for_routing()
@@ -117,11 +121,7 @@ async def chat_completions(
     if sm_cache is not None:
         async with span("cache.lookup") as c_span:
             cached = await sm_cache.get(key=key, prompt=prompt_text)
-            set_cache_attrs(
-                c_span,
-                outcome="HIT" if cached else "MISS",
-                tenant_id=tenant.id
-            )
+            set_cache_attrs(c_span, outcome="HIT" if cached else "MISS", tenant_id=tenant.id)
 
     common_headers = _base_headers(
         tenant=tenant,
@@ -176,7 +176,7 @@ async def chat_completions(
                 prompt_text=prompt_text,
                 sm_cache=sm_cache,
                 cache_key=key,
-                parent_span=root_span
+                parent_span=root_span,
             ),
             media_type="text/event-stream",
             headers={
@@ -289,9 +289,7 @@ async def _sse_stream_with_cache_and_accounting(
                 yield "data: [DONE]\n\n"
 
                 if usage_finalized is not None:
-                    cost_in = pricing.get(backend.model).cost_usd(
-                        usage_finalized.prompt_tokens, 0
-                    )
+                    cost_in = pricing.get(backend.model).cost_usd(usage_finalized.prompt_tokens, 0)
                     cost_out = pricing.get(backend.model).cost_usd(
                         0, usage_finalized.completion_tokens
                     )
@@ -343,8 +341,9 @@ async def _sse_stream_with_cache_and_accounting(
                         cp_span.record_exception(e)
                         logger.exception(
                             "Cache put failed for tenant=%s backend=%s",
-                            tenant.id, backend.name,
-                                )
+                            tenant.id,
+                            backend.name,
+                        )
 
 
 def _resolve_backend(backends: BackendRegistry, req: ChatRequest) -> tuple[Backend, str]:

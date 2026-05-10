@@ -8,6 +8,7 @@ What this module provides
 - Langfuse-specific attribute helpers (cost, tokens, model, tenant)
 - Context propagation helpers that survive async generators
 """
+
 from __future__ import annotations
 
 from app.observability.langfuse import (
