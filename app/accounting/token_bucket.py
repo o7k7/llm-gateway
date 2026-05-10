@@ -38,6 +38,8 @@ from pathlib import Path
 import redis.asyncio as redis
 from redis.exceptions import NoScriptError
 
+from app.observability import span
+
 logger = logging.getLogger(__name__)
 
 
@@ -100,17 +102,27 @@ class TokenBucket:
         """
         if cost < 0:
             raise ValueError("cost must be non-negative")
-        key = self._key(tenant_id, suffix)
-        args = [
-            capacity,
-            refill_per_sec,
-            now_ms if now_ms is not None else _now_ms(),
-            cost,
-            self._ttl_ms,
-        ]
-        raw = await self._run(self._consume_script, self._consume_sha, key, args)
-        allowed_raw, remaining_raw = raw
-        return BucketResult(allowed=bool(int(allowed_raw)), remaining=int(remaining_raw))
+        async with span(f"ratelimit.{suffix}_consume") as s:
+            s.set_attribute("gateway.ratelimit.tenant", tenant_id)
+            s.set_attribute("gateway.ratelimit.cost", cost)
+            s.set_attribute("gateway.ratelimit.capacity", capacity)
+            key = self._key(tenant_id, suffix)
+            args = [
+                capacity,
+                refill_per_sec,
+                now_ms if now_ms is not None else _now_ms(),
+                cost,
+                self._ttl_ms,
+            ]
+            raw = await self._run(self._consume_script, self._consume_sha, key, args)
+            allowed_raw, remaining_raw = raw
+            result = BucketResult(
+                allowed=bool(int(allowed_raw)),
+                remaining=int(remaining_raw),
+            )
+            s.set_attribute("gateway.ratelimit.allowed", result.allowed)
+            s.set_attribute("gateway.ratelimit.remaining", result.remaining)
+            return result
 
     async def refund(
         self,
@@ -127,15 +139,18 @@ class TokenBucket:
         """
         if amount <= 0:
             return await self._peek_or_capacity(tenant_id, suffix, capacity)
-        key = self._key(tenant_id, suffix)
-        args = [
-            capacity,
-            amount,
-            now_ms if now_ms is not None else _now_ms(),
-            self._ttl_ms,
-        ]
-        raw = await self._run(self._refund_script, self._refund_sha, key, args)
-        return int(raw)
+        async with span(f"ratelimit.{suffix}_refund") as s:
+            s.set_attribute("gateway.ratelimit.tenant", tenant_id)
+            s.set_attribute("gateway.ratelimit.amount", amount)
+            key = self._key(tenant_id, suffix)
+            args = [
+                capacity,
+                amount,
+                now_ms if now_ms is not None else _now_ms(),
+                self._ttl_ms,
+            ]
+            raw = await self._run(self._refund_script, self._refund_sha, key, args)
+            return int(raw)
 
     def _key(self, tenant_id: str, suffix: str) -> str:
         return f"{self._prefix}:{tenant_id}:{suffix}"

@@ -7,6 +7,8 @@ from pathlib import Path
 import redis.asyncio as redis
 from redis.exceptions import NoScriptError
 
+from app.observability import span
+
 logger = logging.getLogger(__name__)
 
 _SCRIPT_PATH = Path(__file__).parent / "ledger.lua"
@@ -62,30 +64,38 @@ class Ledger:
         if tokens_in < 0 or tokens_out < 0 or cost_usd < 0 or daily_cap_usd < 0:
             raise ValueError("Negative values are not allowed in ledger.records")
 
-        now = now_utc if now_utc else datetime.now(UTC)
-        key = self._key(tenant_id, now)
+        async with span("ledger.record") as s:
+            s.set_attribute("gateway.ledger.tenant", tenant_id)
+            s.set_attribute("gateway.ledger.tokens_in", tokens_in)
+            s.set_attribute("gateway.ledger.tokens_out", tokens_out)
+            s.set_attribute("gateway.ledger.cost_usd", cost_usd)
 
-        args: list[object] = [
-            tokens_in,
-            tokens_out,
-            round(cost_usd * 1e6),
-            round(daily_cap_usd * 1e6),
-            self._ttl_s,
-        ]
+            now = now_utc or datetime.now(UTC)
+            key = self._key(tenant_id, now)
+            args: list[object] = [
+                tokens_in,
+                tokens_out,
+                round(cost_usd * 1_000_000),
+                round(daily_cap_usd * 1_000_000),
+                self._ttl_s,
+            ]
 
-        try:
-            raw = await self._client.evalsha(self._sha, 1, key, *args)
-        except NoScriptError:
-            logger.info("Ledger script not loaded; falling back to EVAL")
-            raw = await self._client.eval(self._script, 1, key, *args)
+            try:
+                raw = await self._client.evalsha(self._sha, 1, key, *args)
+            except NoScriptError:
+                logger.info("Ledger script not loaded; falling back to EVAL")
+                raw = await self._client.eval(self._script, 1, key, *args)
 
-        (under_budget, total_usd, total_in, total_out) = raw
-        return LedgerEntry(
-            under_budget=bool(int(under_budget)),
-            total_usd_micros=int(total_usd),
-            total_tokens_in=int(total_in),
-            total_tokens_out=int(total_out),
-        )
+            under, total_usd, total_in, total_out = raw
+            entry = LedgerEntry(
+                under_budget=bool(int(under)),
+                total_usd_micros=int(total_usd),
+                total_tokens_in=int(total_in),
+                total_tokens_out=int(total_out),
+            )
+            s.set_attribute("gateway.ledger.under_budget", entry.under_budget)
+            s.set_attribute("gateway.ledger.total_spend_usd", entry.total_usd)
+            return entry
 
     async def current_spend_usd(
         self,

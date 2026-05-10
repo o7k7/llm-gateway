@@ -37,6 +37,7 @@ from redis.exceptions import ResponseError
 
 from app.cache.embedder import Embedder
 from app.cache.key import CacheKey
+from app.observability import get_current_span
 from app.schemas.chat import Usage
 
 logger = logging.getLogger(__name__)
@@ -117,10 +118,13 @@ class SemanticCache:
             return None
 
         if not results.docs:
+            get_current_span().set_attribute("gateway.cache.no_matches", True)
             return None
 
         best = results.docs[0]
         score = float(best.score)
+        get_current_span().set_attribute("gateway.cache.best_distance", score)
+
         if score >= self._threshold:
             logger.debug(
                 "Cache MISS (below threshold): tenant=%s score=%.4f",
@@ -169,9 +173,11 @@ class SemanticCache:
                 },
             )
             await self._redis.expire(doc_key, self._ttl_s)
+            get_current_span().set_attribute("gateway.cache.doc_key", doc_key)
         except Exception as e:
             # Cache write failures must never break the request
             logger.warning("Cache put failed for tenant %s: %s", key.tenant_id, e)
+            get_current_span().record_exception(e)
 
     async def _ensure_index(self, key: CacheKey) -> None:
         """Lazily create the per-tenant index on first use.

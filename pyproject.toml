@@ -13,6 +13,7 @@ dependencies = [
     "numpy>=2.4.0",
     "opentelemetry-api>=1.39.1",
     "opentelemetry-exporter-otlp>=1.39.1",
+    "opentelemetry-exporter-otlp-proto-http>=1.39.1",
     "opentelemetry-sdk>=1.39.1",
     "presidio-analyzer[2-2-360]>=2.2.360",
     "pydantic>=2.10",
@@ -28,6 +29,7 @@ dependencies = [
     "magika>=1.0.3",
     "en-core-web-sm",
     "aioredis>=2.0.1",
+    "opentelemetry-instrumentation-fastapi>=0.60b1",
 ]
 
 [dependency-groups]
