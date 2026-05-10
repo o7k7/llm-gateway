@@ -8,7 +8,7 @@ from app.services.lite_llm_service_interface import ILiteLLMService
 from fastapi import HTTPException
 from litellm import acompletion
 
-litellm.callbacks = ["langfuse_otel"]
+litellm.callbacks = []
 
 
 class LiteLLMService(ILiteLLMService):

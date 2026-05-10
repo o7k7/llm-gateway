@@ -34,6 +34,15 @@ class Config(BaseSettings):
 
     langfuse_pub_key: SecretStr | None = Field(default=None, alias="LANGFUSE_PUB_KEY")
     langfuse_secret_key: SecretStr | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")
+    otel_service_name: str = Field(
+        default="llm-gateway", alias="OTEL_SERVICE_NAME"
+    )
+
+    service_version: str = Field(default="0.2.0", alias="SERVICE_VERSION")
+
+    langfuse_host: str = Field(
+        default="https://cloud.langfuse.com", alias="LANGFUSE_OTEL_HOST"
+    )
 
     small_model_token_threshold: int = 1000
     # Auth (JWT)

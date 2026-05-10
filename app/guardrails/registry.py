@@ -6,6 +6,7 @@ import logging
 
 from app.guardrails.base import Guardrail, GuardrailOutcome, GuardrailResult
 from app.guardrails.errors import GuardrailBlockedError
+from app.observability import span, set_guardrail_attrs
 from app.schemas.chat import ChatRequest
 from app.schemas.tenant import Tenant
 
@@ -36,29 +37,37 @@ class GuardrailRegistry:
         results: list[GuardrailResult] = []
 
         for g in self._guardrails:
-            result = await g.check(current, tenant)
-            results.append(result)
+            async with span(f"Guardrail {g.name!r}") as g_span:
+                result = await g.check(current, tenant)
+                results.append(result)
 
-            if result.outcome is GuardrailOutcome.BLOCKED:
-                logger.info(
-                    "Guardrail %s blocked request for tenant %s: %s",
-                    g.name,
-                    tenant.id,
-                    result.reason,
-                )
-                raise GuardrailBlockedError(
-                    f"Blocked by {g.name} guardrail",
-                    guardrail=g.name,
-                    reason=result.reason,
+                set_guardrail_attrs(
+                    g_span,
+                    name=g.name,
+                    outcome=result.outcome.value,
+                    metadata=result.metadata,
                 )
 
-            if result.outcome is GuardrailOutcome.TRANSFORMED:
-                logger.debug(
-                    "Guardrail %s transformed request for tenant %s: %s",
-                    g.name,
-                    tenant.id,
-                    result.metadata,
-                )
-                current = result.request
+                if result.outcome is GuardrailOutcome.BLOCKED:
+                    logger.info(
+                        "Guardrail %s blocked request for tenant %s: %s",
+                        g.name,
+                        tenant.id,
+                        result.reason,
+                    )
+                    raise GuardrailBlockedError(
+                        f"Blocked by {g.name} guardrail",
+                        guardrail=g.name,
+                        reason=result.reason,
+                    )
+
+                if result.outcome is GuardrailOutcome.TRANSFORMED:
+                    logger.debug(
+                        "Guardrail %s transformed request for tenant %s: %s",
+                        g.name,
+                        tenant.id,
+                        result.metadata,
+                    )
+                    current = result.request
 
         return current, results

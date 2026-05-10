@@ -4,6 +4,8 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 
+from opentelemetry.trace import Span, SpanKind
+
 from app.accounting import Ledger, PricingTable, TokenBucket
 from app.auth import CurrentTenant
 from app.backends import (
@@ -26,6 +28,8 @@ from app.dependencies import (
     CurrentPricing,
 )
 from app.guardrails import GuardrailBlockedError
+from app.observability import get_current_span, set_tenant_attrs, span, set_route_attrs, set_cache_attrs, set_llm_attrs
+from app.observability.tracing import attach_span
 from app.routing.routing import resolve_backend as _routing_resolve
 from app.schemas import ChatChunk, ChatRequest, ChoiceChunk, Delta, Tenant, Usage
 from fastapi import APIRouter, HTTPException
@@ -55,34 +59,69 @@ async def chat_completions(
     pricing: CurrentPricing,
     sm_cache: CurrentCache,
 ) -> StreamingResponse | JSONResponse:
-    try:
-        transformed_req, guardrail_results = await guardrails.run(req, tenant)
-    except GuardrailBlockedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": {
-                    "message": "Request blocked by content guardrail",
-                    "type": "guardrail_blocked",
-                    "guardrail": e.guardrail,
-                    "reason": e.reason,
-                }
-            },
-        ) from e
+    root_span = get_current_span()
+    set_tenant_attrs(root_span, tenant_id=tenant.id)
+    root_span.set_attribute("gateway.request.model", req.model)
+    root_span.set_attribute("gateway.request.stream", req.stream)
 
-    backend, route_reason = _resolve_backend(backends, transformed_req)
-    current_spend = await ledger.current_spend_usd(tenant_id=tenant.id)
+    async with span("guardrails.run") as g_span:
+        try:
+            transformed_req, guardrail_results = await guardrails.run(req, tenant)
+        except GuardrailBlockedError as e:
+            g_span.set_attribute("gateway.guardrail.blocked_by", e.guardrail or "unknown")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": {
+                        "message": "Request blocked by content guardrail",
+                        "type": "guardrail_blocked",
+                        "guardrail": e.guardrail,
+                        "reason": e.reason,
+                    }
+                },
+            ) from e
+        g_span.set_attribute("gateway.guardrail.count", len(guardrail_results))
 
-    if current_spend >= tenant.limits.daily_budget_usd > 0:
-        raise _backend_error_to_http(BackendRateLimitError("Daily budget exhausted"))
+    async with span("routing.resolve") as r_span:
+        backend, route_reason = _resolve_backend(backends, transformed_req)
+        set_route_attrs(
+            r_span,
+            client_model=req.model,
+            resolved_backend=backend.name,
+            resolved_model=backend.model,
+            reason=route_reason
+        )
+        set_route_attrs(
+            root_span,
+            client_model=req.model,
+            resolved_backend=backend.name,
+            resolved_model=backend.model,
+            reason=route_reason,
+        )
+    # Budget guard
+    async with span("accounting.budget_guard") as b_span:
+        current_spend = await ledger.current_spend_usd(tenant_id=tenant.id)
+        b_span.set_attribute("gateway.budget.current_spend_usd", current_spend)
+        b_span.set_attribute("gateway.budget.cap_usd", tenant.limits.daily_budget_usd)
+        if current_spend >= tenant.limits.daily_budget_usd > 0:
+            b_span.set_attribute("gateway.budget.exceeded", True)
+            raise _backend_error_to_http(BackendRateLimitError("Daily budget exhausted"))
+
+
 
     await _enforce_rpm(bucket, tenant)
     key = cache_key_hash(transformed_req, tenant_id=tenant.id, model=backend.model)
     prompt_text = transformed_req.text_for_routing()
 
     cached = None
-    if sm_cache is not None and transformed_req.stream_only_hint():
-        cached = await sm_cache.get(key=key, prompt=prompt_text)
+    if sm_cache is not None:
+        async with span("cache.lookup") as c_span:
+            cached = await sm_cache.get(key=key, prompt=prompt_text)
+            set_cache_attrs(
+                c_span,
+                outcome="HIT" if cached else "MISS",
+                tenant_id=tenant.id
+            )
 
     common_headers = _base_headers(
         tenant=tenant,
@@ -93,15 +132,27 @@ async def chat_completions(
 
     if cached is not None:
         common_headers["X-Gateway-Cache"] = "HIT"
+        set_cache_attrs(root_span, outcome="hit", tenant_id=tenant.id)
+        # Record LLM attrs on root for cache hits
+        set_llm_attrs(
+            root_span,
+            model=cached.model,
+            prompt_text=prompt_text,
+            completion_text=cached.content,
+            prompt_tokens=cached.usage.prompt_tokens if cached.usage else None,
+            completion_tokens=cached.usage.completion_tokens if cached.usage else None,
+        )
         return _cache_hit_response(req=transformed_req, cached=cached, headers=common_headers)
 
     common_headers["X-Gateway-Cache"] = "MISS"
-
+    set_cache_attrs(root_span, outcome="miss", tenant_id=tenant.id)
+    # TPM pre-flight
     estimated_cost = estimator.estimate_budget(
         transformed_req, default_max_tokens=_DEFAULT_PREFLIGHT_MAX_TOKENS
     )
 
     common_headers["X-Gateway-Estimated-Cost"] = str(estimated_cost)
+    root_span.set_attribute("gateway.token.estimated_cost", estimated_cost)
     # Consume - Pre-flight
     await _enforce_tpm(bucket, tenant, estimated_cost)
 
@@ -114,7 +165,7 @@ async def chat_completions(
 
     if transformed_req.stream:
         return StreamingResponse(
-            _sse_stream_accounted(
+            _sse_stream_with_cache_and_accounting(
                 backend=backend,
                 req=transformed_req,
                 est_cost=estimated_cost,
@@ -122,6 +173,10 @@ async def chat_completions(
                 tenant=tenant,
                 bucket=bucket,
                 ledger=ledger,
+                prompt_text=prompt_text,
+                sm_cache=sm_cache,
+                cache_key=key,
+                parent_span=root_span
             ),
             media_type="text/event-stream",
             headers={
@@ -198,7 +253,7 @@ def _base_headers(
     return headers
 
 
-async def _sse_stream_accounted(
+async def _sse_stream_with_cache_and_accounting(
     *,
     backend: Backend,
     req: ChatRequest,
@@ -207,38 +262,89 @@ async def _sse_stream_accounted(
     bucket: TokenBucket,
     pricing: PricingTable,
     est_cost: int,
+    prompt_text: str,
+    sm_cache: CurrentCache | None,
+    cache_key: CacheKey,
+    parent_span: Span,
 ) -> AsyncIterator[str]:
-    usage_finalized: Usage | None = None
-    try:
-        async for chunk in backend.stream(req):
-            if chunk.usage is not None:
-                usage_finalized = chunk.usage
-            yield f"data: {chunk.model_dump_json(exclude_none=True)}\n\n"
-        yield "data: [DONE]\n\n]"
-    except BackendError as e:
-        logger.warning("Backend %s stream error: %s", backend.name, e)
-        error_payload = {
-            "error": {
-                "message": str(e),
-                "type": _error_type(e),
-                "backend": backend.name,
-            }
-        }
-        yield f"data: {json.dumps(error_payload)}\n\n"
-        yield "data: [DONE]\n\n]"
-    finally:
+    async with attach_span(parent_span):
+        usage_finalized: Usage | None = None
+        content_parts: list[str] = []
+        ttft_recorded = False
+        async with span("backend.stream", kind=SpanKind.CLIENT) as b_span:
+            b_span.set_attribute("gateway.backend.name", backend.name)
+            b_span.set_attribute("gateway.backend.model", backend.model)
+
+            try:
+                async for chunk in backend.stream(req):
+                    if not ttft_recorded and chunk.choices and chunk.choices[0].delta.content:
+                        ttft_recorded = True
+
+                        b_span.add_event("ttft")
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        content_parts.append(chunk.choices[0].delta.content)
+                    if chunk.usage is not None:
+                        usage_finalized = chunk.usage
+                    yield f"data: {chunk.model_dump_json(exclude_none=True)}\n\n"
+                yield "data: [DONE]\n\n"
+
+                if usage_finalized is not None:
+                    cost_in = pricing.get(backend.model).cost_usd(
+                        usage_finalized.prompt_tokens, 0
+                    )
+                    cost_out = pricing.get(backend.model).cost_usd(
+                        0, usage_finalized.completion_tokens
+                    )
+                    set_llm_attrs(
+                        b_span,
+                        model=backend.model,
+                        prompt_text=prompt_text,
+                        completion_text="".join(content_parts),
+                        prompt_tokens=usage_finalized.prompt_tokens,
+                        completion_tokens=usage_finalized.completion_tokens,
+                        cost_input_usd=cost_in,
+                        cost_output_usd=cost_out,
+                    )
+            except BackendError as e:
+                logger.warning("Backend %s stream error: %s", backend.name, e)
+                b_span.record_exception(e)
+                error_payload = {
+                    "error": {
+                        "message": str(e),
+                        "type": _error_type(e),
+                        "backend": backend.name,
+                    }
+                }
+                yield f"data: {json.dumps(error_payload)}\n\n"
+                yield "data: [DONE]\n\n]"
+                # Post-stream: reconcile and cache, under the parent span
         if usage_finalized is not None:
-            await _post_flight_reconcile(
-                tenant=tenant,
-                bucket=bucket,
-                usage=usage_finalized,
-                ledger=ledger,
-                pricing=pricing,
-                backend=backend,
-                est_cost=est_cost,
-            )
-        else:
-            logger.warning("No usage reported for tenant=%s backend=%s", tenant.id, backend.name)
+            async with span("accounting.reconcile"):
+                await _post_flight_reconcile(
+                    tenant=tenant,
+                    backend=backend,
+                    bucket=bucket,
+                    ledger=ledger,
+                    pricing=pricing,
+                    usage=usage_finalized,
+                    est_cost=est_cost,
+                )
+            if sm_cache is not None and content_parts:
+                async with span("cache.put") as cp_span:
+                    cp_span.set_attribute("gateway.cache.tenant", tenant.id)
+                    try:
+                        await sm_cache.put(
+                            key=cache_key,
+                            prompt=prompt_text,
+                            response="".join(content_parts),
+                            usage=usage_finalized,
+                        )
+                    except Exception as e:
+                        cp_span.record_exception(e)
+                        logger.exception(
+                            "Cache put failed for tenant=%s backend=%s",
+                            tenant.id, backend.name,
+                                )
 
 
 def _resolve_backend(backends: BackendRegistry, req: ChatRequest) -> tuple[Backend, str]:

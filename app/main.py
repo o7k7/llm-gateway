@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import litellm
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from presidio_analyzer import AnalyzerEngine
 from sentence_transformers import SentenceTransformer
 
@@ -80,11 +81,11 @@ def _configure_logging(config: Config):
 
 
 def _configure_litellm_globals(config: Config):
-    if config.langfuse_secret_key and config.langfuse_secret_key:
-        litellm.callbacks = ["langfuse_otel"]
-        logger.info("LiteLLM Langfuse enabled")
-    else:
-        logger.info("Langfuse keys not set")
+    # Explicitly clear any previously-set callbacks.
+    # app.observability will take the responsibility
+    litellm.callbacks = []
+    litellm.success_callback = []
+    litellm.failure_callback = []
 
 
 def _needs_embedder(config: Config) -> bool:
@@ -189,6 +190,7 @@ async def _build_guardrails(config: Config, embedder: Embedder | None) -> Guardr
 
 
 app = FastAPI(title="LLM Gateway", version="0.2.0", lifespan=lifespan)
+FastAPIInstrumentor.instrument_app(app)
 
 app.include_router(chat.chat_router, prefix="/v1")
 app.include_router(chat_v2.chat_route_v2, prefix="/v2")

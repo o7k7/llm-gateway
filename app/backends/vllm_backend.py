@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
+from opentelemetry.trace import Span, Status, StatusCode
 
 from app.backends.errors import (
     BackendAuthError,
@@ -15,6 +16,7 @@ from app.backends.errors import (
     BackendTimeoutError,
     BackendUnavailableError,
 )
+from app.observability import get_current_span
 from app.schemas.chat import ChatChunk, ChatRequest
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,7 @@ class VLLMBackend:
         max_connections: int = 200,
     ) -> None:
         self.name = name
-        self.model = model
+        self._model = model
         self._base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
@@ -57,6 +59,12 @@ class VLLMBackend:
 
     # Public API
     async def stream(self, req: ChatRequest) -> AsyncIterator[ChatChunk]:
+        span = get_current_span()
+        span.set_attribute("gateway.backend.type", "vllm")
+        span.set_attribute("gateway.backend.url", self._base_url)
+        span.set_attribute("gateway.backend.model", self._model)
+        ttft_emitted = False
+
         payload = self._build_payload(req)
         try:
             async with self._client.stream(
@@ -64,16 +72,29 @@ class VLLMBackend:
             ) as response:
                 self._raise_for_status(response)
                 async for chunk in self._iter_sse_chunks(response):
+                    if (
+                            not ttft_emitted
+                            and chunk.choices
+                            and chunk.choices[0].delta.content
+                    ):
+                        span.add_event("vllm.ttft")
+                        ttft_emitted = True
+
                     yield chunk
         except httpx.TimeoutException as e:
+            span.set_status(Status(StatusCode.ERROR, "timeout"))
             raise BackendTimeoutError(
                 f"vLLM backend {self.name!r} timed out", backend=self.name
             ) from e
         except httpx.ConnectError as e:
+            span.set_status(Status(StatusCode.ERROR, "connect failed"))
             raise BackendUnavailableError(
                 f"vLLM backend {self.name!r} unreachable: {e}", backend=self.name
             ) from e
         except httpx.HTTPError as e:
+            span.set_status(
+                Status(StatusCode.ERROR, f"http {e}")
+            )
             raise BackendError(
                 f"vLLM backend {self.name!r} HTTP error: {e}", backend=self.name
             ) from e
@@ -91,7 +112,7 @@ class VLLMBackend:
     def _build_payload(self, req: ChatRequest) -> dict[str, Any]:
         """Serialize the request, forcing streaming + usage reporting + our model."""
         payload = req.model_dump(exclude_none=True)
-        payload["model"] = self.model
+        payload["model"] = self._model
         payload["stream"] = True
         stream_options = payload.get("stream_options") or {}
         stream_options["include_usage"] = True
