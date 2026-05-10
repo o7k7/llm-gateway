@@ -3,6 +3,7 @@
 Default export target: Langfuse OTLP endpoint (Langfuse Cloud or self-hosted).
 Authenticated via HTTP Basic auth using LANGFUSE_PUBLIC_KEY : LANGFUSE_SECRET_KEY.
 """
+
 from __future__ import annotations
 
 import base64
@@ -23,8 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def configure_observability(config: Config) -> None:
-    """Initialize the global OTel TracerProvider.
-    """
+    """Initialize the global OTel TracerProvider."""
     if trace.get_tracer_provider().__class__.__name__ == "TracerProvider":
         logger.info("TracerProvider already configured; skipping")
         return
@@ -49,9 +49,7 @@ def configure_observability(config: Config) -> None:
         provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
         logger.info("OTel configured: console exporter (dev mode)")
     else:
-        logger.warning(
-            "OTel: no exporter configured. Spans will be created but not exported."
-        )
+        logger.warning("OTel: no exporter configured. Spans will be created but not exported.")
 
     trace.set_tracer_provider(provider)
 
@@ -65,8 +63,7 @@ def shutdown_observability() -> None:
 
 
 def _build_langfuse_exporter(config: Config) -> OTLPSpanExporter:
-    """Build an OTLP HTTP exporter targeting Langfuse.
-    """
+    """Build an OTLP HTTP exporter targeting Langfuse."""
     pk = config.langfuse_pub_key.get_secret_value()
     sk = config.langfuse_secret_key.get_secret_value()
     auth = base64.b64encode(f"{pk}:{sk}".encode()).decode()
