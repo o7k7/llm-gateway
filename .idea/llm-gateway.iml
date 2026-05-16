@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/baseline/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/bench/.venv" />
     </content>
     <orderEntry type="jdk" jdkName="uv (llm-gateway)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
