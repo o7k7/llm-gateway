@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class LoadConfig:
     target_url: str
-    """Full URL like http://localhost:8000/v1/chat/completions"""
+    """Full URL like http://localhost:8000/v2/chat/completions"""
 
     payload: dict[str, object]
     """The chat request body to send each time."""

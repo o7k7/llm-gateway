@@ -72,7 +72,7 @@ async def stream_request(
 
     try:
         async with client.stream(
-            "POST", url, json=payload, timeout=timeout_s
+            "POST", url, json=payload, timeout=timeout_s, headers={"Content-Type": "application/json", "X-Tenant-Id": "benchmark"}
         ) as response:
             if response.status_code != 200:
                 await response.aread()
@@ -170,7 +170,7 @@ async def blocking_request(
     """
     start = time.monotonic()
     try:
-        response = await client.post(url, json=payload, timeout=timeout_s)
+        response = await client.post(url, json=payload, timeout=timeout_s, headers={"Content-Type": "application/json", "X-Tenant-Id": "benchmark"})
         total = time.monotonic() - start
 
         if response.status_code != 200:
