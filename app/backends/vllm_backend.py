@@ -40,7 +40,7 @@ class VLLMBackend:
         max_connections: int = 200,
     ) -> None:
         self.name = name
-        self._model = model
+        self.model = model
         self._base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
@@ -62,7 +62,7 @@ class VLLMBackend:
         span = get_current_span()
         span.set_attribute("gateway.backend.type", "vllm")
         span.set_attribute("gateway.backend.url", self._base_url)
-        span.set_attribute("gateway.backend.model", self._model)
+        span.set_attribute("gateway.backend.model", self.model)
         ttft_emitted = False
 
         payload = self._build_payload(req)
@@ -106,7 +106,7 @@ class VLLMBackend:
     def _build_payload(self, req: ChatRequest) -> dict[str, Any]:
         """Serialize the request, forcing streaming + usage reporting + our model."""
         payload = req.model_dump(exclude_none=True)
-        payload["model"] = self._model
+        payload["model"] = self.model
         payload["stream"] = True
         stream_options = payload.get("stream_options") or {}
         stream_options["include_usage"] = True

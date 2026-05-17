@@ -53,7 +53,7 @@ class TargetSpec:
 TARGETS: dict[str, TargetSpec] = {
     "gateway": TargetSpec(
         name="gateway",
-        url="http://localhost:8000/v1/chat/completions",
+        url="http://localhost:8000/v2/chat/completions",
         streaming=True,
         model="auto",
     ),
