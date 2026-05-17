@@ -1,4 +1,4 @@
-.PHONY: up up-redis-stack lint-format run-linter up-vllm-small down-vllm-small install-spacy-model
+.PHONY: up up-redis-stack lint-format run-linter up-vllm-small down-vllm-small install-spacy-model bench-full
 
 up:
 	docker compose up -d
@@ -14,6 +14,10 @@ run-linter:
 
 install-spacy-model:
 	uv run python -m spacy download en_core_web_sm
+
+.PHONY: bench-full
+bench-full:
+	bench/scenarios.sh
 
 up-vllm-small:
 	docker run --rm -it \
