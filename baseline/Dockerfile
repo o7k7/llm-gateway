@@ -1,49 +1,62 @@
-FROM ubuntu:22.04
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
-# Prevent interactive configuration prompts during package updates
-# Prevent interactive configuration prompts during package updates
-ENV DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_FRONTEND=noninteractive
 
-# Install system prerequisites, INCLUDING gnupg for repository key management
+ARG BASELINE_MODEL=Qwen/Qwen2.5-7B-Instruct
+ENV BASELINE_MODEL=${BASELINE_MODEL}
+ENV UV_PYTHON=python3.12
+ARG HF_TOKEN
+ENV HF_TOKEN=${HF_TOKEN}
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    gnupg \
-    curl \
-    git \
+        software-properties-common \
+        gnupg \
+        curl \
+        git \
+        ca-certificates \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-dev \
-    python3.11-venv \
-    python3-pip \
+        python3.11 \
+        python3.11-dev \
+        python3.11-venv \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv via the official pre-compiled binary method for optimal container speeds
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/.hf_cache && \
+    chown -R appuser:appuser /app
 
 WORKDIR /app
 
-# Copy the environment file into the workspace root
-COPY baseline/pyproject.toml /app/pyproject.toml
+USER appuser
 
-# Install dependencies into the global system python path using the tool choices from your project configuration
-RUN uv pip install --system --no-cache -r pyproject.toml
+COPY --chown=appuser:appuser baseline/pyproject.toml baseline/uv.lock /app/
+RUN uv sync --frozen --no-install-project --no-dev
+ENV PATH="/app/.venv/bin:$PATH"
 
-# Set up caching directory for Hugging Face
 ENV HF_HOME=/app/.hf_cache
-
-# Warm up the cache by pre-downloading the Qwen-7B weights
-RUN python3.11 -c "\
-from transformers import AutoTokenizer, AutoModelForCausalLM; \
-AutoTokenizer.from_pretrained('Qwen/Qwen2.5-7B-Instruct'); \
-AutoModelForCausalLM.from_pretrained('Qwen/Qwen2.5-7B-Instruct', low_cpu_mem_usage=True)" \
-    || echo "Pre-download failed; will download at runtime"
-
-# Copy the application source code
-COPY baseline/ /app/baseline/
-
 ENV PYTHONUNBUFFERED=1
+ENV HF_XET_HIGH_PERFORMANCE=1
+
+RUN python -c "\
+import os; \
+model = os.environ['BASELINE_MODEL']; \
+print(f'Pre-downloading {model}...'); \
+from transformers import AutoTokenizer, AutoModelForCausalLM; \
+AutoTokenizer.from_pretrained(model); \
+AutoModelForCausalLM.from_pretrained(model, low_cpu_mem_usage=True); \
+print('Pre-download complete.')"
+
+ENV HF_TOKEN=""
+
+COPY --chown=appuser:appuser baseline/ /app/baseline/
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD curl -fsS http://localhost:8100/health || exit 1
+
 EXPOSE 8100
 
-# Execute using system python, calling fastapi directly as resolved by the installation layer
 CMD ["fastapi", "run", "baseline/server.py", "--host", "0.0.0.0", "--port", "8100"]
