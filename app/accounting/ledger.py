@@ -17,7 +17,7 @@ _DEFAULT_TTL_S = 90_000  # ~25h
 
 
 def _sha(script: str) -> str:
-    return hashlib.sha256(script.encode()).hexdigest()
+    return hashlib.sha1(script.encode()).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
