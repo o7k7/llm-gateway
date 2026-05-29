@@ -1,0 +1,78 @@
+# By default, K8s treats `nvidia.com/gpu: 1` as exclusive whole-GPU
+# allocation. Three GPU pods (small, large, baseline) on a single
+# A100 would fail to schedule.
+#
+# Time-slicing reconfigures the device plugin to advertise the
+# physical GPU as N logical "replicas". Pods sharing the GPU
+# context-switch in time, not memory partitioning
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-time-slicing-config
+  namespace: kube-system
+data:
+  any: |-
+    version: v1
+    flags:
+      migStrategy: none
+    sharing:
+      timeSlicing:
+        renameByDefault: false
+        failRequestsGreaterThanOne: false
+        resources:
+        - name: nvidia.com/gpu
+          replicas: 4
+          # 4 logical GPUs = enough for vllm-small + vllm-large + baseline
+          # plus 1 spare
+
+---
+# The device plugin DaemonSet itself.
+# Source: https://github.com/NVIDIA/k8s-device-plugin
+# Confirmed Source [8] for current API.
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      priorityClassName: system-node-critical
+      containers:
+      - image: nvcr.io/nvidia/k8s-device-plugin:v0.16.2
+        name: nvidia-device-plugin-ctr
+        env:
+        - name: FAIL_ON_INIT_ERROR
+          value: "false"
+        - name: CONFIG_FILE
+          value: /etc/nvidia/config/any
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+        - name: config
+          mountPath: /etc/nvidia/config
+      volumes:
+      - name: device-plugin
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+      - name: config
+        configMap:
+          name: nvidia-time-slicing-config
