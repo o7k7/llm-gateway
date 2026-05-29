@@ -47,7 +47,7 @@ model = os.environ['BASELINE_MODEL']; \
 print(f'Pre-downloading {model}...'); \
 from transformers import AutoTokenizer, AutoModelForCausalLM; \
 AutoTokenizer.from_pretrained(model); \
-AutoModelForCausalLM.from_pretrained(model, low_cpu_mem_usage=True); \
+AutoModelForCausalLM.from_pretrained(model, low_cpu_mem_usage=True, device_map=auto); \
 print('Pre-download complete.')"
 
 ENV HF_TOKEN=""
