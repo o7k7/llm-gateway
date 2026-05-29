@@ -1,0 +1,91 @@
+# Naive HuggingFace baseline server.
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: baseline
+  namespace: llm-gateway
+  labels:
+    app: baseline
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8100
+    targetPort: 8100
+    name: http
+  selector:
+    app: baseline
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: baseline
+  namespace: llm-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: baseline
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: baseline
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+
+      containers:
+      - name: baseline
+        image: ghcr.io/o7k7/llm-gateway-baseline:v0.1.0
+        ports:
+        - containerPort: 8100
+          name: http
+        env:
+        - name: BASELINE_MODEL
+          value: "Qwen/Qwen2.5-7B-Instruct"
+          # NOT the AWQ variant — baseline is fp16 by design
+        - name: BASELINE_MAX_NEW_TOKENS
+          value: "512"
+        - name: BASELINE_DTYPE
+          value: "float16"
+        - name: HF_HOME
+          value: "/app/model_cache"
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: "20Gi"  # fp16 7B weights + tokenizer + buffers
+            cpu: "4"
+          requests:
+            nvidia.com/gpu: 1
+            memory: "16Gi"
+            cpu: "2"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8100
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 60   # 10 min for HF model load
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8100
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8100
+          periodSeconds: 10
+          timeoutSeconds: 5
+      imagePullSecrets:
+        - name: ghcr-creds
