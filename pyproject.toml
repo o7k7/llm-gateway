@@ -30,6 +30,7 @@ dependencies = [
     "en-core-web-sm",
     "aioredis>=2.0.1",
     "opentelemetry-instrumentation-fastapi>=0.60b1",
+    "spacy>=3.8.11",
 ]
 
 [dependency-groups]

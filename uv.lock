@@ -1654,6 +1654,7 @@ dependencies = [
     { name = "pytest-env" },
     { name = "redis" },
     { name = "sentence-transformers" },
+    { name = "spacy" },
     { name = "tiktoken" },
 ]
 
@@ -1700,6 +1701,7 @@ requires-dist = [
     { name = "pytest-env", specifier = ">=1.6.0" },
     { name = "redis", specifier = ">=7.1.0" },
     { name = "sentence-transformers", specifier = ">=5.2.0" },
+    { name = "spacy", specifier = ">=3.8.11" },
     { name = "tiktoken", specifier = ">=0.8" },
 ]
 

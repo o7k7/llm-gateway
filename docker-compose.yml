@@ -1,4 +1,35 @@
 services:
+  vllm-small:
+    image: rocm/vllm:latest
+    container_name: vllm-test
+    networks:
+      - llm-gateway-network
+    ports:
+      - "8001:8000"
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0
+      - HIP_VISIBLE_DEVICES=0
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+    security_opt:
+      - seccomp=unconfined
+    ipc: host
+    command:
+      - "python3"
+      - "-m"
+      - "vllm.entrypoints.openai.api_server"
+      - "--model=Qwen/Qwen2.5-7B-Instruct-AWQ"
+      - "--quantization=awq"
+      - "--gpu-memory-utilization=0.50"
+      - "--max-model-len=2048"
+      - "--enforce-eager"
+      - "--disable-log-stats"
+      - "--kv-cache-dtype=auto"
+
+
   redis-stack:
     image: redis/redis-stack:7.4.0-v8
     container_name: redis-stack
@@ -13,25 +44,43 @@ services:
       - redis-data:/data
 
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: llm-gateway-api
+    restart: unless-stopped
     networks:
       - llm-gateway-network
     ports:
-      - "8000:80"
+      - "8000:8000"  # standardized — container also runs on 8000
     environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-securepassword}@redis-stack:6379/0
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-securepassword}
       - REDIS_HOST=redis-stack
       - REDIS_PORT=6379
-      - LLM_API_KEY=${LLM_API_KEY}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - HF_HOME=/app/model_cache
+
       - LLM_PROVIDER=groq
       - LLM_MODEL=llama-3.1-8b-instant
+      - LLM_API_KEY=${LLM_API_KEY}
+
+      - CACHE_ENABLED=true
+      - PII_ENABLED=true
+      - JAILBREAK_ENABLED=true
+      - VLLM_SMALL_URL=http://vllm-small:8000
+      - VLLM_SMALL_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
+
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      - LANGFUSE_PUB_KEY=${LANGFUSE_PUB_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_OTEL_HOST=${LANGFUSE_OTEL_HOST}
-    depends_on:
-      - redis-stack
+      - OTEL_SERVICE_NAME=llm-gateway
+      - HF_HOME=/app/model_cache
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
 volumes:
   redis-data:

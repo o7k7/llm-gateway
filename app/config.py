@@ -86,7 +86,7 @@ class Config(BaseSettings):
     # PII guardrail
     pii_enabled: bool = Field(default=True, alias="PII_ENABLED")
 
-    pii_policy: str = Field(default="REDACT", alias="PII_POLICY")
+    pii_policy: str = Field(default="redact", alias="PII_POLICY")
 
     pii_min_score: float = Field(default=0.5, alias="PII_MIN_SCORE")
     """Presidio confidence threshold; matches below this score are ignored."""
