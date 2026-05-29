@@ -1,0 +1,156 @@
+# vLLM-small backend — Qwen2.5-7B-Instruct-AWQ
+#
+# Two-container pattern:
+# 1. Init container: downloads model weights to PVC at first startup.
+#    Subsequent pod restarts skip the download (PVC persists).
+# 2. Main container: vLLM with weights mounted from PVC.
+#
+# StatefulSet (not Deployment) because:
+# - Model weight PVC is per-pod (each pod has its own download)
+# - Stable network identity for service discovery
+# - Replicas=1 here; production with N replicas would need separate
+#   shared-PVC pattern (NFS/EFS) or per-replica downloads.
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-small
+  namespace: llm-gateway
+  labels:
+    app: vllm-small
+spec:
+  ports:
+  - port: 8001
+    targetPort: 8001
+    name: http
+  clusterIP: None
+  selector:
+    app: vllm-small
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vllm-small
+  namespace: llm-gateway
+spec:
+  serviceName: vllm-small
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-small
+  template:
+    metadata:
+      labels:
+        app: vllm-small
+    spec:
+      # Schedule on nodes with GPUs only
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+
+      # --- Init container: pre-download model weights ---
+      initContainers:
+      - name: model-downloader
+        image: python:3.12-slim
+        command: ["sh", "-c"]
+        args:
+          - |
+            set -e
+            MODEL_DIR=/models/Qwen2.5-7B-Instruct-AWQ
+            if [ -f "$MODEL_DIR/config.json" ]; then
+              echo "Model already downloaded; skipping."
+              exit 0
+            fi
+            echo "Downloading Qwen2.5-7B-Instruct-AWQ..."
+            pip install --no-cache-dir 'huggingface_hub[cli]>=0.25'
+            huggingface-cli download \
+              Qwen/Qwen2.5-7B-Instruct-AWQ \
+              --local-dir "$MODEL_DIR" \
+              --local-dir-use-symlinks False
+            echo "Download complete."
+        env:
+        - name: HF_HUB_ENABLE_HF_TRANSFER
+          value: "1"  # Faster parallel downloads
+        volumeMounts:
+        - name: model-cache
+          mountPath: /models
+        resources:
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+
+      # --- Main container: vLLM serving ---
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.8.1
+        args:
+          - "--model=/models/Qwen2.5-7B-Instruct-AWQ"
+          - "--served-model-name=Qwen/Qwen2.5-7B-Instruct-AWQ"
+          - "--quantization=awq_marlin"
+          - "--dtype=auto"
+          - "--gpu-memory-utilization=0.20"
+          # 0.20 × 80GB = 16GB upper bound.
+          - "--max-model-len=4096"
+          - "--port=8001"
+          - "--host=0.0.0.0"
+          - "--disable-log-requests"
+        ports:
+        - containerPort: 8001
+          name: http
+        env:
+        - name: HF_HOME
+          value: /models
+        resources:
+          limits:
+            nvidia.com/gpu: 1  # 1 of 4 time-slices
+            memory: "16Gi"
+            cpu: "4"
+          requests:
+            nvidia.com/gpu: 1
+            memory: "8Gi"
+            cpu: "1"
+        volumeMounts:
+        - name: model-cache
+          mountPath: /models
+        # vLLM exposes /health for liveness/readiness
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 60
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+  # PVC template — each replica gets its own model cache.
+  volumeClaimTemplates:
+  - metadata:
+      name: model-cache
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 30Gi

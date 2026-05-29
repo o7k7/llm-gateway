@@ -1,0 +1,123 @@
+# Gateway Deployment — the API surface for tenants.
+#
+# Deployment (not StatefulSet) because:
+# - Stateless; all state lives in Redis
+# - We want rolling updates with zero downtime
+# - Multiple replicas can serve concurrently behind a Service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: llm-gateway
+  labels:
+    app: gateway
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8000
+    name: http
+  selector:
+    app: gateway
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: llm-gateway
+  labels:
+    app: gateway
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+      annotations:
+        config-version: "1"
+    spec:
+      containers:
+      - name: gateway
+        image: ghcr.io/o7k7/llm-gateway:v0.2.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+
+        # --- Environment from ConfigMap and Secret ---
+        envFrom:
+        - configMapRef:
+            name: gateway-config
+        - secretRef:
+            name: gateway-secrets
+
+        resources:
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+
+        # --- Probes ---
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # Readiness: don't route traffic to a pod that's still loading
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        # Startup: long grace period for first-time embedder load
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 24  # 2 min total
+
+
+      imagePullSecrets:
+        - name: ghcr-creds
+
+      # Pod-level security context: drop unneeded privileges
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+---
+# Pod Disruption Budget — survives node drains.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-pdb
+  namespace: llm-gateway
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gateway

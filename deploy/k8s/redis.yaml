@@ -1,0 +1,98 @@
+# Redis Stack — used for token bucket, ledger, semantic cache, jailbreak embeddings.
+#
+# StatefulSet because:
+# - Stable network identity (redis-stack-0)
+# - Persistent volume that survives pod restarts
+#
+# For production, swap with Redis Sentinel or Redis Cluster.
+# DEPLOYMENT.md documents this tradeoff.
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-stack
+  namespace: llm-gateway
+  labels:
+    app: redis-stack
+spec:
+  ports:
+  - port: 6379
+    name: redis
+    targetPort: 6379
+  clusterIP: None
+  selector:
+    app: redis-stack
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-stack
+  namespace: llm-gateway
+spec:
+  serviceName: redis-stack
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-stack
+  template:
+    metadata:
+      labels:
+        app: redis-stack
+    spec:
+      containers:
+      - name: redis
+        image: redis/redis-stack-server:7.4.0-v3
+        ports:
+        - containerPort: 6379
+          name: redis
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gateway-secrets
+              key: REDIS_PASSWORD
+        - name: REDIS_ARGS
+          value: >-
+            --requirepass $(REDIS_PASSWORD)
+            --save 60 1000
+            --appendonly no
+            --maxmemory 4gb
+            --maxmemory-policy allkeys-lru
+        resources:
+          limits:
+            memory: "5Gi"
+            cpu: "2"
+          requests:
+            memory: "1Gi"
+            cpu: "200m"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - redis-cli -a "$REDIS_PASSWORD" ping
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - redis-cli -a "$REDIS_PASSWORD" ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi

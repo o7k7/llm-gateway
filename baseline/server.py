@@ -72,6 +72,7 @@ async def _lifespan(app: FastAPI):
         config.model_name,
         dtype=dtype,
         low_cpu_mem_usage=True,
+        device_map="auto",
     )
     _state.model.eval()
 
