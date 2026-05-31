@@ -1,0 +1,143 @@
+# vLLM-large backend — Qwen2.5-14B-Instruct-AWQ
+#
+# Same shape as vllm-small with two differences:
+# - Larger model (14B AWQ -> ~9GB weights)
+# - Higher gpu-memory-utilization to allow more KV cache
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-large
+  namespace: llm-gateway
+  labels:
+    app: vllm-large
+spec:
+  ports:
+  - port: 8002
+    targetPort: 8002
+    name: http
+  clusterIP: None
+  selector:
+    app: vllm-large
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vllm-large
+  namespace: llm-gateway
+spec:
+  serviceName: vllm-large
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-large
+  template:
+    metadata:
+      labels:
+        app: vllm-large
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+
+      initContainers:
+      - name: model-downloader
+        image: python:3.12-slim
+        command: ["sh", "-c"]
+        args:
+          - |
+            set -e
+            MODEL_DIR=/models/Qwen2.5-14B-Instruct-AWQ
+            if [ -f "$MODEL_DIR/config.json" ]; then
+              echo "Model already downloaded; skipping."
+              exit 0
+            fi
+            echo "Downloading Qwen2.5-14B-Instruct-AWQ..."
+            pip install --no-cache-dir 'huggingface_hub[cli]>=0.25'
+            huggingface-cli download \
+              Qwen/Qwen2.5-14B-Instruct-AWQ \
+              --local-dir "$MODEL_DIR" \
+              --local-dir-use-symlinks False
+            echo "Download complete."
+        env:
+        - name: HF_HUB_ENABLE_HF_TRANSFER
+          value: "1"
+        volumeMounts:
+        - name: model-cache
+          mountPath: /models
+        resources:
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.8.1
+        args:
+          - "--model=/models/Qwen2.5-14B-Instruct-AWQ"
+          - "--served-model-name=Qwen/Qwen2.5-14B-Instruct-AWQ"
+          - "--quantization=awq_marlin"
+          - "--dtype=auto"
+          - "--gpu-memory-utilization=0.30"
+          # 0.30 × 80GB = 24GB upper bound. Weights ~9GB + KV cache ~15GB.
+          - "--max-model-len=4096"
+          - "--port=8002"
+          - "--host=0.0.0.0"
+          - "--disable-log-requests"
+        ports:
+        - containerPort: 8002
+          name: http
+        env:
+        - name: HF_HOME
+          value: /models
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: "24Gi"
+            cpu: "6"
+          requests:
+            nvidia.com/gpu: 1
+            memory: "12Gi"
+            cpu: "2"
+        volumeMounts:
+        - name: model-cache
+          mountPath: /models
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 60   # 14B loads slower than 7B
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 90  # 15 min for cold start
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+  volumeClaimTemplates:
+  - metadata:
+      name: model-cache
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 40Gi

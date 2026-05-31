@@ -1,0 +1,42 @@
+# docker-compose.bench.yml — benchmark infrastructure (NVIDIA)
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.bench.yml up
+#
+# Adds the naive baseline server alongside the existing gateway + vLLM +
+# Redis stack. Benchmark client (run separately, not containerized) hits
+# both ports and compares.
+
+services:
+  baseline:
+    build:
+      context: .
+      dockerfile: baseline/Dockerfile
+    container_name: hf-baseline
+    networks:
+      - llm-gateway-network
+    ports:
+      - "8100:8100"
+    environment:
+      - BASELINE_MODEL=Qwen/Qwen2.5-7B-Instruct
+      - BASELINE_MAX_NEW_TOKENS=512
+      - BASELINE_DTYPE=float16
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8100/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    restart: unless-stopped
+
+networks:
+  llm-gateway-network:
+    external: true

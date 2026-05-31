@@ -1,0 +1,23 @@
+[project]
+name = "hf-baseline"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+dependencies = [
+    "fastapi[standard]>=0.128.0",
+    "uvicorn>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "transformers>=4.45",
+    "torch>=2.5.1",
+    "accelerate>=0.33",
+    "sentencepiece>=0.2",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }

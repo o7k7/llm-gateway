@@ -7,9 +7,11 @@ from redis.asyncio import Redis, from_url
 
 logger = logging.getLogger("RedisClient")
 
+
 def get_redis_url():
     encoded_pwd = urllib.parse.quote_plus(config.REDIS_PASSWORD)
     return f"redis://:{encoded_pwd}@{config.REDIS_HOST}:{config.REDIS_PORT}/0"
+
 
 @alru_cache(maxsize=1)
 async def get_redis() -> Redis:
@@ -18,12 +20,9 @@ async def get_redis() -> Redis:
     The @alru_cache ensures the connection pool is only created once.
     """
     logger.info("Initializing Redis client...")
-    client = from_url(
-        get_redis_url(),
-        encoding="utf-8",
-        decode_responses=True
-    )
+    client = from_url(get_redis_url(), encoding="utf-8", decode_responses=True, max_connections=100)
     return client
+
 
 async def dispose_redis():
     """

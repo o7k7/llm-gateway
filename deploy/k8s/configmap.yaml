@@ -1,0 +1,41 @@
+# Non-sensitive gateway configuration.
+# (real secret created via `kubectl create secret`, never committed).
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: llm-gateway
+data:
+  # --- Backend URLs (intra-cluster service DNS) ---
+  REDIS_URL: "redis://redis-stack.llm-gateway.svc.cluster.local:6379/0"
+  VLLM_SMALL_URL: "http://vllm-small.llm-gateway.svc.cluster.local:8001"
+  VLLM_LARGE_URL: "http://vllm-large.llm-gateway.svc.cluster.local:8002"
+
+  # Disable otel for benchmark
+  OTEL_ENABLED: "false"
+  LANGFUSE_ENABLED: "false"
+
+  # --- Backend models ---
+  VLLM_SMALL_MODEL: "Qwen/Qwen2.5-7B-Instruct-AWQ"
+  VLLM_LARGE_MODEL: "Qwen/Qwen2.5-14B-Instruct-AWQ"
+
+  # --- LiteLLM fallback (Groq) ---
+  LLM_PROVIDER: "groq"
+  LLM_MODEL: "llama-3.1-8b-instant"
+
+  # --- Feature flags ---
+  CACHE_ENABLED: "true"
+  PII_ENABLED: "true"
+  JAILBREAK_ENABLED: "true"
+
+  # --- Observability ---
+  LANGFUSE_HOST: "https://cloud.langfuse.com"
+  OTEL_SERVICE_NAME: "llm-gateway"
+  OTEL_SERVICE_VERSION: "0.2.0"
+
+  # --- Logging ---
+  LOG_LEVEL: "INFO"
+
+  # --- HuggingFace cache mount path (used by gateway for embedder) ---
+  HF_HOME: "/app/model_cache"
