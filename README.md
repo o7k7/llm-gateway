@@ -63,7 +63,7 @@ succeed at 100%, but the gateway delivers responses ~5× faster end-to-end
 because vLLM's continuous batching processes 4 concurrent requests in
 parallel while the naive baseline serializes them.
 
-[Full benchmark results →](docs/benchmarks/RESULTS.md)
+[Full benchmark results →](bench/results/RESULTS.md)
 
 ## What's in here
 
@@ -79,8 +79,10 @@ parallel while the naive baseline serializes them.
 
 ## Quick start
 
+[See Makefile](Makefile) or
+
 ```bash
-git clone https://github.com/yourname/llm-gateway.git
+git clone https://github.com/o7k7/llm-gateway.git
 cd llm-gateway
 docker compose up -d
 
@@ -88,3 +90,4 @@ curl -N http://localhost:8000/v2/chat/completions
 -H "Content-Type: application/json"
 -H "X-Tenant-Id: demo"
 -d '{ "model": "auto", "messages": [{"role": "user", "content": "Hello!"}] }'
+```

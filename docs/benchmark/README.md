@@ -307,4 +307,4 @@ configured, but the configuration has limits worth flagging:
 
 ## See also
 
-- [RESULTS.md](RESULTS.md) — full bench data and comparison tables
+- [RESULTS.md](../../bench/results/RESULTS.md) — full bench data and comparison tables
