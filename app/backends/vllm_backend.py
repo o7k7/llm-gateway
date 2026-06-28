@@ -68,7 +68,7 @@ class VLLMBackend:
         payload = self._build_payload(req)
         try:
             async with self._client.stream(
-                "POST", "/v1/chat/completions", json=payload
+                "POST", "/openai/v1/chat/completions", json=payload
             ) as response:
                 self._raise_for_status(response)
                 async for chunk in self._iter_sse_chunks(response):
